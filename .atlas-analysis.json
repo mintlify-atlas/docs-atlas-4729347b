@@ -1,0 +1,84 @@
+{
+  "projectType": "saas",
+  "projectName": "ASWA — La Rica Chicha",
+  "projectDescription": "A mobile-first digital ordering platform for La Rica Chicha, an artisan corn chicha business in Tarapoto, Peru, featuring delivery management, customer loyalty tiers, UGC, and WhatsApp integration — built as the first implementation of a future multi-business SaaS.",
+  "theme": "almond",
+  "primaryColor": "#facc15",
+  "lightColor": "#fde047",
+  "darkColor": "#09090b",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/ordering",
+              "features/delivery",
+              "features/loyalty",
+              "features/ugc",
+              "features/payments"
+            ]
+          },
+          {
+            "group": "Admin & Operations",
+            "pages": [
+              "admin/deliverista-panel",
+              "admin/order-management",
+              "admin/firestore-structure"
+            ]
+          },
+          {
+            "group": "Customization",
+            "pages": [
+              "customization/multi-business",
+              "customization/branding",
+              "customization/pricing"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/firebase-setup",
+              "deployment/github-pages"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Interactive product catalog (2L, 3L, 4L chicha presentations)",
+    "Dynamic shopping cart with automatic delivery cost calculation by district",
+    "WhatsApp order integration with pre-filled message generation",
+    "Firebase Firestore real-time order tracking and management",
+    "Customer loyalty program with Bronze, Silver, Gold, and Diamond tiers",
+    "Referral system with discount benefits",
+    "UGC (User Generated Content) gallery with admin approval workflow",
+    "Delivery driver panel with PIN authentication and order confirmation",
+    "GPS location sharing for delivery address",
+    "Yape (Peruvian payment app) QR code payment support",
+    "Sale note (nota de venta) generation with download and print",
+    "Multi-business architecture (BUSINESS_ID based)",
+    "Anonymous Firebase Authentication for seamless user experience",
+    "Fully responsive mobile-first PWA design"
+  ],
+  "publicApiSurface": [
+    "Firestore collection: negocios/{businessId}",
+    "Firestore collection: pedidos (orders)",
+    "Firestore collection: clientes (customers with loyalty data)",
+    "Firestore collection: ugc (user-generated content submissions)",
+    "Cart class: addItem(item), removeItem(itemId), save(), load()",
+    "LoyaltySystem class: addPoints(points), updateDatabase()",
+    "Missions class: addMission(mission), completeMission(missionId)",
+    "sendWhatsAppMessage(phone, message)",
+    "cargarNegocio() — loads business config from Firestore",
+    "BUSINESS_ID global — identifier for multi-business support",
+    "WA1 / WA2 globals — WhatsApp contact numbers"
+  ]
+}
