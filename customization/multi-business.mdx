@@ -1,0 +1,172 @@
+---
+title: "Multi-business setup"
+description: "How ASWA's architecture supports multiple independent business instances on a single Firestore backend."
+---
+
+ASWA is designed from the ground up as a multi-business SaaS platform. Every business gets its own isolated Firestore document, its own WhatsApp numbers, and its own branded deployment. The only file-level change required to spin up a new business is a single constant.
+
+## Architecture overview
+
+The business identity is controlled by a single string constant defined at the top of both HTML files:
+
+```javascript
+// index.html and ugc.html — line 65 / line 43
+const BUSINESS_ID = "aswa001";
+```
+
+At page load, `cargarNegocio()` reads the Firestore document at `negocios/{BUSINESS_ID}` and applies the business config to the running UI. All customer records, orders, and UGC submissions are scoped to this ID via a `businessId` field on every Firestore document.
+
+## The `cargarNegocio()` function
+
+Defined in both `index.html` and `ugc.html`, this async function runs once at startup:
+
+```javascript
+async function cargarNegocio() {
+  try {
+    const snap = await window.FB.getDoc(
+      window.FB.doc(db, 'negocios', BUSINESS_ID)
+    );
+    if (snap.exists()) {
+      const data = snap.data();
+      // Update the header business name
+      if (data.nombre) {
+        const el = document.querySelector('.bname');
+        if (el) el.textContent = data.nombre;
+      }
+      // Override default WhatsApp numbers
+      if (data.whatsapp1) window.WA1 = data.whatsapp1;
+      if (data.whatsapp2) window.WA2 = data.whatsapp2;
+      // Store full config globally
+      window.NEGOCIO = data;
+    }
+  } catch(e) { console.warn('cargarNegocio:', e.message); }
+}
+
+// Fallback numbers (used if Firestore is unreachable or fields are absent)
+window.WA1 = "51955273229";
+window.WA2 = "51986445531";
+```
+
+<Note>
+The fallback WhatsApp numbers (`WA1` / `WA2`) are set synchronously before `cargarNegocio()` runs. If Firestore returns values, they override the fallbacks. If the network is unavailable, orders still route to the fallback numbers.
+</Note>
+
+## Firestore document structure
+
+Each business is a document in the `negocios` collection:
+
+```
+negocios/
+  aswa001/          ← BUSINESS_ID
+    nombre          string   "La Rica Chicha"
+    whatsapp1       string   "51955273229"
+    whatsapp2       string   "51986445531"
+    ...             (any additional config fields)
+```
+
+| Field | Type | Purpose |
+|---|---|---|
+| `nombre` | `string` | Business display name shown in `.bname` header element |
+| `whatsapp1` | `string` | Primary order WhatsApp number (E.164 without `+`) |
+| `whatsapp2` | `string` | Secondary/backup WhatsApp number |
+
+All fields are optional — if absent, the hardcoded HTML defaults remain in effect.
+
+## The `window.NEGOCIO` global
+
+After `cargarNegocio()` resolves, the entire Firestore document is available at `window.NEGOCIO`. This means you can extend the `negocios` document with any additional fields (operating hours, social links, payment QR URL, etc.) and read them anywhere in the app:
+
+```javascript
+// Example: read a custom field from the business document
+const horario = window.NEGOCIO?.horario || 'Lun–Sáb 9am–7pm';
+```
+
+## Setting up a new business instance
+
+<Steps>
+  <Step title="Create the Firestore document">
+    In the Firebase console for project `pedidos-aswa-peru`, open **Firestore Database** and create a document at:
+
+    ```
+    negocios/{newBusinessId}
+    ```
+
+    Set at minimum the `nombre`, `whatsapp1`, and `whatsapp2` fields.
+
+    ```json
+    {
+      "nombre": "Mi Negocio",
+      "whatsapp1": "51900000001",
+      "whatsapp2": "51900000002"
+    }
+    ```
+  </Step>
+
+  <Step title="Update BUSINESS_ID in both HTML files">
+    Change the constant in **both** `index.html` and `ugc.html`:
+
+    ```javascript
+    // Before
+    const BUSINESS_ID = "aswa001";
+
+    // After
+    const BUSINESS_ID = "mi-negocio-001";
+    ```
+
+    <Warning>
+    The constant appears independently in `index.html` (main ordering app) and `ugc.html` (UGC/bonus submission page). Both files must be updated or the UGC page will still query the wrong business document.
+    </Warning>
+  </Step>
+
+  <Step title="Update the fallback WhatsApp numbers">
+    Change the hardcoded fallback values in both files so orders still route correctly if Firestore is unreachable:
+
+    ```javascript
+    window.WA1 = "51900000001";   // same as Firestore whatsapp1
+    window.WA2 = "51900000002";   // same as Firestore whatsapp2
+    ```
+  </Step>
+
+  <Step title="Deploy to a separate GitHub Pages branch or domain">
+    <Tabs>
+      <Tab title="GitHub Pages branch">
+        Create a dedicated branch (e.g. `mi-negocio`) in the repository and push the updated HTML files. Then configure GitHub Pages to serve from that branch:
+
+        ```bash
+        git checkout -b mi-negocio
+        # edit index.html and ugc.html
+        git add index.html ugc.html
+        git commit -m "configure for mi-negocio-001"
+        git push origin mi-negocio
+        ```
+
+        In repository **Settings → Pages**, point the source to the `mi-negocio` branch.
+      </Tab>
+      <Tab title="Custom domain">
+        Deploy the HTML files to any static host (Netlify, Vercel, Cloudflare Pages) under a custom domain. Add the domain to Firebase Console under **Authentication → Settings → Authorized domains** to allow anonymous sign-in.
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Update Firestore Security Rules">
+    Ensure the new `BUSINESS_ID` value matches the `businessId` field written on customer and order documents. The rules rely on this field to isolate data between businesses.
+  </Step>
+</Steps>
+
+## Future routing roadmap
+
+The source code comments (index.html line 64) describe three planned mechanisms to eliminate the need for per-deployment file edits:
+
+<CardGroup cols={3}>
+  <Card title="URL parameter" icon="link">
+    `?b=aswa001` — Read `BUSINESS_ID` from the query string. Allows a single deployment to serve multiple businesses by URL.
+  </Card>
+  <Card title="Subdomain routing" icon="globe">
+    `aswa.laricachicha.com` — Parse the subdomain on load and map it to a `BUSINESS_ID`. Requires a wildcard DNS record and subdomain-to-ID mapping.
+  </Card>
+  <Card title="Central login" icon="lock">
+    Business owners authenticate and the app resolves their `BUSINESS_ID` from their user profile. Enables a true multi-tenant dashboard.
+  </Card>
+</CardGroup>
+
+All three approaches converge on the same `cargarNegocio()` call — only the mechanism for deriving `BUSINESS_ID` changes.

@@ -1,0 +1,179 @@
+---
+title: "Loyalty"
+description: "The four-tier ASWA loyalty program: how tiers work, how discounts are applied, the customer banner, and the referral code system."
+---
+
+## Loyalty tiers
+
+ASWA uses a four-tier loyalty system based on the total number of completed orders a customer has placed. Each tier unlocks a higher discount applied automatically at checkout.
+
+| Tier | Orders required | Discount | Color | Emoji |
+|---|---|---|---|---|
+| Bronce | 0 – 4 | 0% | Brown gradient `#92400e → #b45309` | 🥉 |
+| Plata | 5 – 9 | 10% | Blue gradient `#1e3a8a → #2563eb` | 🥈 |
+| Oro | 10 – 19 | 15% | Amber gradient `#92400e → #d97706` | 🥇 |
+| Diamante | 20+ | 20% | Purple gradient `#4c1d95 → #7c3aed` | 💎 |
+
+Tier thresholds are evaluated from the `pedidos_totales` field on the customer's Firestore document in the `clientes` collection.
+
+```javascript
+const p = data.pedidos_totales || 0;
+let nivel = 'BRONCE', fid = 0;
+if      (p >= 20) { nivel = 'DIAMANTE'; fid = 20; }
+else if (p >= 10) { nivel = 'ORO';      fid = 15; }
+else if (p >= 5)  { nivel = 'PLATA';    fid = 10; }
+// BRONCE: fid = 0
+```
+
+## Customer registration
+
+There is no sign-up form. A customer is registered automatically on their first order by entering their 9-digit phone number in the **Teléfono** field. The app queries Firestore for an existing `clientes` document matching that phone number and `businessId`.
+
+- **Returning customer**: their tier, name, bonuses, and referral code are loaded immediately.
+- **New customer**: a new `clientes` document is created on order submission with `pedidos_totales: 1` and a freshly generated referral code.
+
+<Note>
+  Phone numbers must start with `9` and be exactly 9 digits long (standard Peruvian mobile format). The lookup fires automatically as the customer types — no submit button required.
+</Note>
+
+## Customer banner
+
+When a known phone number is entered, a personalized banner (`.cban`) slides in above the form fields. It is divided into three zones:
+
+### Header
+
+The header background uses the gradient of the customer's current tier. It shows:
+
+- The tier emoji (large, left-aligned)
+- A greeting: **¡Hola, [Nombre]! 👋**
+- A tier description below the name (e.g., *¡Cliente VIP!* for Oro)
+- The tier name as a pill badge (e.g., `PLATA`)
+
+### Progress bar
+
+For customers who have not yet reached Diamante, a progress bar shows how many orders remain until the next tier:
+
+- Label: e.g., **Camino a ORO 🥇**
+- Counter: e.g., `7/10 pedidos`
+- A white-filled progress bar (width animated via CSS transition)
+
+The bar is hidden for Diamante customers.
+
+### Tags and alerts
+
+Below the progress bar, a row of pill-shaped tags shows:
+
+- **Fidelity discount tag** (green) — e.g., `🏆 10% fidelidad`
+- **Active bonus tag** (green) — e.g., `🎁 5% bonos activos`
+- **Order count tag** — e.g., `7 pedidos acumulados`
+- **Expiry warnings** (red) — e.g., `⚠️ Bono 5% vence mañana` for bonuses expiring within 3 days
+
+```javascript
+const bonosAlerta = bonos.filter(b => {
+  if (!b.expira) return false;
+  const dias = (new Date(b.expira) - now) / 86400000;
+  return dias <= 3 && dias >= 0;
+});
+```
+
+### Referral code section
+
+At the bottom of the banner, the customer's personal referral code is displayed inline:
+
+- A label: **🎁 Tu código para amigos**
+- The code in large letters: e.g., `ASWA-4F3D2A1B`
+- A **Copiar** button to copy to clipboard
+- A **Compartir 💛** button that opens the referral modal
+
+The code color matches the customer's tier: brown for Bronce, blue for Plata, amber for Oro, purple for Diamante.
+
+## Referral code system
+
+Every customer receives a unique referral code in the format `ASWA-XXXXXXXX`, generated from their Firebase anonymous user ID:
+
+```javascript
+async function genCod() {
+  return 'ASWA-' + window.currentUser.uid
+    .slice(-8).toUpperCase()
+    .replace(/O/g, '0')
+    .replace(/I/g, '1')
+    .replace(/L/g, '1');
+}
+```
+
+The code is stored as `codigo_referido` on the customer's Firestore document.
+
+### Sharing a referral code
+
+Customers can share their code in two ways:
+
+<Tabs>
+  <Tab title="Copy to clipboard">
+    Tap **📋 COPIAR MI CÓDIGO** in the referral modal or **Copiar** in the banner. The code is copied to the clipboard and a toast notification confirms it.
+  </Tab>
+  <Tab title="WhatsApp share">
+    Tap **ENVIAR A MIS AMIGOS / FAMILIA 💛** to open WhatsApp with a pre-written message containing the referral code. The message is built using the standard WhatsApp API URL:
+    ```
+    https://api.whatsapp.com/send?phone=...&text=...
+    ```
+  </Tab>
+</Tabs>
+
+### How referrals work
+
+When a new customer enters a valid referral code in the **Código referido** field at checkout:
+
+1. The app looks up the code owner in Firestore.
+2. A **5% discount** (`ST.disc.ref = 5`) is applied to the new customer's order.
+3. On order submission, a new bonus of `{ tipo: 'referido', valor: 5, expira: +30 days }` is added to the code owner's `bonos_activos` array.
+
+This means **both parties benefit**: the new customer gets 5% off, and the referring customer earns a 5% bonus on their next order.
+
+<Note>
+  Referral discounts stack with fidelity and bonus discounts, but the total combined discount is capped at **50%**.
+</Note>
+
+## Discount at checkout
+
+The combined discount percentage is calculated and displayed in the order summary modal via the `.dban` (discount banner) element:
+
+```javascript
+const disc = Math.min(50, ST.disc.fid + ST.disc.bon + ST.disc.ref);
+// Example: 10% (fidelity) + 5% (bonus) + 5% (referral) = 20%
+```
+
+If a discount is active, a green banner appears showing the breakdown: e.g., `🎉 Descuento 20% (10% fidelidad + 5% bonos + 5% referido) aplicado`.
+
+Discounted unit prices are also shown on the product cards with the original price crossed out.
+
+## LoyaltySystem class
+
+The `LoyaltySystem` class in `js/app.js` provides a programmatic interface for updating customer points in Firebase Realtime Database:
+
+```javascript
+class LoyaltySystem {
+  constructor(userId) {
+    this.userId = userId;
+    this.points = 0;
+  }
+
+  addPoints(points) {
+    this.points += points;
+    this.updateDatabase();
+  }
+
+  updateDatabase() {
+    firebase.database().ref('loyalty/' + this.userId).set({
+      points: this.points
+    });
+  }
+}
+
+// Usage
+const loyaltySystem = new LoyaltySystem('currentUserId');
+loyaltySystem.addPoints(10);
+```
+
+<Note>
+  The main ordering app (`index.html`) computes tiers directly from `pedidos_totales` in Firestore. The `LoyaltySystem` class in `app.js` is a utility for points-based extensions.
+</Note>

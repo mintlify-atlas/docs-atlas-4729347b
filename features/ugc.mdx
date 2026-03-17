@@ -1,0 +1,168 @@
+---
+title: "User-generated content"
+description: "How customers submit photos and reviews, the admin approval workflow, the community gallery, and the Bono reward for contributing content."
+---
+
+## What is UGC?
+
+ASWA includes a user-generated content (UGC) system called **Comparte y Gana**. Customers share photos, videos, or written reviews of their chicha experience. In return, they earn bonus discounts on future orders. The business gains authentic social proof displayed in a community gallery.
+
+<CardGroup cols={2}>
+  <Card title="Photo submission" icon="camera">
+    Customers upload a photo or video from their phone along with a written review.
+  </Card>
+  <Card title="Admin approval" icon="shield-check">
+    Every submission is reviewed before it appears in the public gallery.
+  </Card>
+  <Card title="Community gallery" icon="images">
+    Approved content is displayed in a two-column masonry-style grid with likes and featured badges.
+  </Card>
+  <Card title="Bonus rewards" icon="gift">
+    Contributors earn percentage discounts added to their `bonos_activos` in Firestore.
+  </Card>
+</CardGroup>
+
+## Submission form
+
+The UGC submission form lives on the **Bono** tab (page `page-bono`). The form has three sections.
+
+### Tu Info
+
+| Field | Type | Purpose |
+|---|---|---|
+| Nombre | Text input | Customer's display name for the gallery |
+| Celular | Tel input (9 digits) | Links the submission to a customer account |
+| ¿Primera compra? | Dropdown | Tracks new vs. returning customers |
+
+### Contenido
+
+| Field | Type | Purpose |
+|---|---|---|
+| Tipo de contenido | Dropdown | Foto, Video, Reels / Story, Reseña escrita |
+| Plataforma | Dropdown | Instagram, TikTok, Facebook, YouTube, Google Maps, Otro |
+| Tu usuario @ | Text input | Social handle for attribution |
+| Link publicación | URL input | Link to the published post |
+| Tu mensaje | Textarea | Free-text review or experience description |
+| Sin campaña / Campaña | Dropdown | Associates submission with a marketing campaign |
+
+### Photo upload
+
+A dashed upload zone accepts image and video files:
+
+```html
+<div class="upload-zone" onclick="document.getElementById('b-foto').click()">
+  <div class="uico">📁</div>
+  <p>Toca para subir imagen o video</p>
+  <input type="file" id="b-foto" accept="image/*,video/*">
+</div>
+```
+
+When a file is selected:
+1. The zone border turns green (`.has-file` class).
+2. An image preview renders below the zone.
+3. On submission, the file is uploaded to **Firebase Storage** under the `pedidos-aswa-peru.appspot.com` bucket.
+
+### Bonus preview
+
+As the customer selects a content type, pill badges in the page header update to show the bonus they will earn:
+
+| Content type | Bonus |
+|---|---|
+| Foto | +2% |
+| Video | +4% |
+| Reels / Story | +2% |
+| Reseña escrita | +1% |
+
+## Authorization checkbox
+
+Before the submit button becomes active, the customer must check the authorization box:
+
+> **AUTORIZO A ASWA** — Uso de imagen en redes, publicidad y materiales. Puedo solicitar eliminación. Mayor de 18 años.
+
+The submit button (`.btn-enviar-bono`) remains disabled and dimmed until all required fields are filled **and** the checkbox is checked. When ready, it becomes active with a yellow background.
+
+```javascript
+function checkBonoReady() {
+  const autorizado = document.getElementById('b-autorizo').checked;
+  // additional field validation...
+  document.getElementById('btnEnviarBono')
+    .classList.toggle('ready', autorizado && allFieldsFilled);
+}
+```
+
+## Firebase Storage upload
+
+When the customer taps **ENVIAR**, the selected file is uploaded to Firebase Storage. The storage path follows the pattern:
+
+```
+ugc/{businessId}/{timestamp}_{filename}
+```
+
+The download URL is saved alongside the submission metadata in Firestore (`ugc` collection).
+
+<Warning>
+  Submissions remain hidden from the public gallery until an admin approves them. The upload to Firebase Storage still occurs immediately on submit — only the gallery visibility is gated by approval.
+</Warning>
+
+## Admin approval workflow
+
+Submissions arrive in Firestore's `ugc` collection with `status: "pending"`. An admin reviews each submission and updates the status field.
+
+<Steps>
+  <Step title="Submission arrives">
+    A new document is created in Firestore with `status: "pending"`, the customer's name, review text, content type, platform, storage URL, and timestamp.
+  </Step>
+  <Step title="Admin reviews">
+    The admin opens the admin panel and sees all pending submissions. Each card shows the photo preview, customer name, review text, and content type.
+  </Step>
+  <Step title="Approve or reject">
+    - **Approve**: sets `status: "approved"` — the submission appears in the public gallery.
+    - **Reject**: sets `status: "rejected"` — the submission is hidden and the file may be deleted from Storage.
+  </Step>
+  <Step title="Bonus credited">
+    On approval, the bonus percentage for the content type is added to the customer's `bonos_activos` array in their `clientes` document with a 30-day expiry.
+  </Step>
+</Steps>
+
+## Community gallery
+
+The gallery page (`page-galeria`) displays all approved UGC in a two-column grid. Each card shows:
+
+- The customer's photo (square aspect ratio, `object-fit: cover`)
+- A gradient overlay fading from black at the bottom
+- The submitter's name
+- A heart icon with the like count
+- A featured badge (yellow pill, top-right corner) for staff-curated posts
+
+### Gallery filters
+
+Four filter buttons at the top of the gallery let customers browse by category:
+
+| Filter | Behavior |
+|---|---|
+| Todos | Shows all approved submissions |
+| ⭐ Destacados | Shows staff-featured posts only |
+| 🕐 Recientes | Sorted by submission date, newest first |
+| 🔥 Populares | Sorted by like count, highest first |
+
+Tapping a filter button highlights it in yellow and reloads the grid from Firestore with the appropriate query.
+
+### Like counts
+
+Each gallery card displays a like counter. Tapping a photo opens a detail view where users can like the post. Like counts are stored on the UGC document in Firestore.
+
+## Bono reward
+
+The Bono tab header summarizes the rewards available for each content type:
+
+```
+📸 Foto    +2%
+🎬 Video   +4%
+📹 Reels   +2%
+```
+
+Once a submission is approved, the bonus is added to `bonos_activos` on the customer's Firestore document. It appears as a green tag in the [customer banner](/features/loyalty#tags-and-alerts) (`🎁 X% bonos activos`) and is applied automatically on the next order.
+
+<Tip>
+  Bonuses have a 30-day expiry. Customers see a red warning tag in their loyalty banner if a bonus is expiring within 3 days.
+</Tip>

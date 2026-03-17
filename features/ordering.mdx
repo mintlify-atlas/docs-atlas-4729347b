@@ -1,0 +1,169 @@
+---
+title: "Ordering"
+description: "How customers browse the product catalog, build a cart, and send orders via WhatsApp — including the sale note generated after delivery confirmation."
+---
+
+## Product catalog
+
+The ordering screen presents three product cards under the **Elige tu presentación** section. Each card shows the product image, name, size description, and price. Customers adjust quantities with **−** and **+** buttons directly on the card.
+
+| Product | ID | Price |
+|---|---|---|
+| Chicha ASWA | `p2l` — 2 Litros | S/ 9.00 |
+| Chicha ASWA | `p3l` — 3 Litros | S/ 13.00 |
+| Chicha ASWA Familiar | `p4l` — 4 Litros | S/ 15.00 |
+
+When a product has a quantity greater than zero, its card gets a yellow highlight border (`border-color: var(--y)`), giving the customer a clear visual confirmation of what is in their order.
+
+```javascript
+function qty(id, d) {
+  ST.cart[id] = Math.max(0, ST.cart[id] + d);
+  document.getElementById('q-' + id).textContent = ST.cart[id];
+  document.getElementById('c-' + id).classList.toggle('on', ST.cart[id] > 0);
+  calcTotal();
+}
+```
+
+## Floating order bar
+
+As soon as the subtotal exceeds zero, the floating order bar (`.fbar`) appears fixed above the bottom navigation. It shows:
+
+- A muted label: **Total a pagar**
+- The running total in large yellow numerals (`S/ 0.00`)
+- A strikethrough of the undiscounted price when a discount is active
+- A **CONTINUAR →** button that opens the order summary modal
+
+The bar is hidden when the cart is empty and reappears automatically as products are added.
+
+## Order flow
+
+<Steps>
+  <Step title="Select products">
+    Tap **+** on any product card to add units. Tap **−** to remove. The floating bar updates the total in real time.
+  </Step>
+  <Step title="Enter customer data">
+    In the **Tus datos** section, fill in:
+    - **Teléfono** — 9-digit Peruvian mobile number (triggers loyalty lookup)
+    - **Nombre completo** — auto-filled if the phone matches an existing customer
+    - **Código referido** (optional) — a friend's `ASWA-XXXXXXXX` code for a 5% discount
+    - **Dirección de entrega** — street address or manual description
+    - **Zona** — delivery district (affects delivery fee)
+  </Step>
+  <Step title="Choose delivery method">
+    Select a zone from the dropdown. Options include Morales, Tarapoto, Banda de Shilcayo, pickup at store (free), or nationwide delivery. The delivery charge is added to the running total immediately.
+  </Step>
+  <Step title="Choose payment method">
+    Select one of the four payment options: **Efectivo**, **Yape**, **Plin**, or **Transferencia**. See [Payments](/features/payments) for details on each method.
+  </Step>
+  <Step title="Review and confirm">
+    Tap **CONTINUAR →** to open the order summary sheet. It lists each product line, delivery charge, any discounts applied, and the grand total. Tap **ENVIAR PEDIDO POR WHATSAPP** to dispatch the order.
+  </Step>
+  <Step title="Order sent">
+    The app opens WhatsApp with a pre-formatted message sent to two business numbers (`WA1` and `WA2`). Firestore records the order in the `pedidos` collection. The success screen is shown immediately.
+  </Step>
+</Steps>
+
+### WhatsApp message format
+
+The message sent to the business is structured and uses bold text markers for quick reading:
+
+```
+━━━━━━━━━━━━━━━━━━━━━
+🌽 *NUEVO PEDIDO ASWA*
+📋 *N° #ABC123*  •  🕐 14:32
+━━━━━━━━━━━━━━━━━━━━━
+
+👤 *CLIENTE*
+  ▸ María Torres
+  ▸ 📱 987654321
+  ▸ 🥈 Nivel PLATA
+
+🛒 *PRODUCTOS*
+─────────────────────
+• 2× ASWA 2L → S/ 18.00
+• 1× ASWA 4L Familiar → S/ 15.00
+─────────────────────
+🎁 Descuento -10%:  *−S/ 3.30*
+💰 *TOTAL:  S/ 29.70*
+
+🚴 *ENTREGA*
+  ▸ 🏠 Jr. Los Pinos 345
+  ▸ 📌 Zona: Tarapoto — S/ 4.00
+
+💳 *PAGO: Yape*
+
+━━━━━━━━━━━━━━━━━━━━━
+_ASWA · La Rica Chicha · Morales_ 🌿
+```
+
+The order is dispatched to `wa.me/51955273229` and `wa.me/51986445531` with a 900 ms stagger between the two sends.
+
+## Firestore order document
+
+Every order is saved to the `pedidos` collection under the `pedidos-aswa-peru` Firestore project:
+
+```javascript
+{
+  businessId:          "aswa001",
+  nombre:              "María Torres",
+  telefono:            "987654321",
+  direccion:           "Jr. Los Pinos 345",
+  distrito:            "Tarapoto — S/ 4.00",
+  items:               { p2l: 2, p3l: 0, p4l: 1 },
+  subtotal:            37.00,
+  delivery:            4.00,
+  descuento_pct:       10,
+  descuento_amt:       3.30,
+  total:               29.70,
+  pago:                "Yape",
+  nivel_cliente:       "PLATA",
+  estado:              "Pendiente",
+  confirmacion_cliente: false,
+  gps_url:             null,
+  fecha:               <serverTimestamp>
+}
+```
+
+The `estado` field moves through the [order status flow](/features/delivery#order-status-flow) as the order progresses.
+
+## Success screen
+
+After the WhatsApp message is sent, the app shows a full-screen success state:
+
+- A large animated checkmark emoji
+- **¡Pedido enviado!** in yellow
+- The customer's referral code (e.g., `🎁 Tu código: ASWA-4F3D2A1B`) if one exists
+- A green **📦 Ya recibí — Confirmar entrega** button to trigger the delivery confirmation flow
+- A **Nuevo pedido** link to start over
+
+After 6 seconds, the app automatically transitions to the delivery confirmation modal.
+
+## Nota de venta (sale note)
+
+The sale note is generated after the customer confirms delivery. It opens as a bottom sheet modal on a white background, replicating the visual style of a printed receipt.
+
+<Note>
+  The nota de venta is only generated after the customer taps **✅ SÍ, YA RECIBÍ MI PEDIDO** in the delivery confirmation modal. It is not shown immediately after placing the order.
+</Note>
+
+### Sale note contents
+
+| Section | Fields |
+|---|---|
+| Header | Business logo, "LA RICA CHICHA - ASWA", address (Morales - San Martín), WhatsApp numbers |
+| Order metadata | Note number (`N° Nota`), date and time |
+| Customer data | Name, phone, delivery address, GPS link (if shared), zone, payment method, loyalty tier badge |
+| Referral code | Customer's personal `ASWA-XXXXXXXX` code with a "share with friends" note |
+| Product table | Columns: Producto, Cant., P. Unit., Subtotal — one row per item |
+| Delivery row | Delivery charge as a separate table row |
+| Totals | Discount applied (green), subtotal, grand total (large gold numerals) |
+| Footer | "¡Gracias por tu preferencia!" message with business tagline |
+
+### Actions
+
+At the bottom of the nota de venta, two action buttons appear side by side:
+
+- **📥 Descargar PDF** — downloads the note as a PDF using `html2canvas` or equivalent
+- **🖨️ Imprimir** — triggers the browser's print dialog
+
+A **✕ Cerrar nota** button closes the modal.

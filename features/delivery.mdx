@@ -1,0 +1,129 @@
+---
+title: "Delivery"
+description: "Delivery zones, fee calculation, store pickup, real-time GPS location sharing, and the order status lifecycle for La Rica Chicha ASWA."
+---
+
+## Delivery zones and fees
+
+When customers select their delivery zone from the **Zona** dropdown, the app adds the corresponding delivery fee to the cart total in real time.
+
+| Zone | Delivery fee | Notes |
+|---|---|---|
+| Morales | S/ 3.00 | Base delivery zone |
+| Tarapoto | S/ 4.00 | — |
+| Banda de Shilcayo | S/ 5.00 | — |
+| Recojo en local | S/ 0.00 | Store pickup — free |
+| A nivel nacional | S/ 10.00 | Nationwide shipping |
+
+The delivery fee is stored in `ST.delivery` and included in the Firestore order document as the `delivery` field. It also appears as a separate row in the order summary modal and in the [nota de venta](/features/ordering#nota-de-venta-sale-note) product table.
+
+```javascript
+function calcTotal() {
+  const base = ST.cart.p2l*9 + ST.cart.p3l*13 + ST.cart.p4l*15;
+  ST.delivery = Number(document.getElementById('zona').value) || 0;
+  ST.raw      = base + ST.delivery;
+  // discount applied on top of raw total
+}
+```
+
+## Store pickup
+
+Customers who prefer to collect their order in person can select **Recojo en local — Gratis** from the zone dropdown.
+
+<Tip>
+  Store address: **Jr. Sargento Lores #425, Morales** — near Parque Central de Morales.
+</Tip>
+
+When store pickup is selected, the delivery fee is `S/ 0.00` and no address is required. The zone text `"Recojo en local — Gratis"` is included in the WhatsApp message under the **ENTREGA** section so the business team knows no rider is needed.
+
+## GPS location sharing
+
+Customers can share their exact GPS coordinates to help the delivery rider find them. The GPS button appears below the address field in the **Tus datos** section.
+
+<Steps>
+  <Step title="Tap the GPS button">
+    The **📡 UBICACIÓN EN TIEMPO REAL** button triggers the browser's Geolocation API. While locating, the button pulses and shows a loading state.
+  </Step>
+  <Step title="Grant location permission">
+    The browser asks for location access. If granted, the GPS activates. If denied, the button shows a red error state.
+  </Step>
+  <Step title="Live indicator appears">
+    A green live box appears below the button showing:
+    - A pulsing green dot (`.gps-pulse`) indicating active GPS
+    - **📍 GPS activo — ubicación en vivo** label
+    - Live coordinates updating in real time (latitude, longitude)
+  </Step>
+  <Step title="Coordinates captured">
+    Once the position is obtained, `ST.gpsUrl` is set to a Google Maps link (`https://maps.google.com/?q=LAT,LNG`) and `ST.gpsCoords` stores the raw coordinates. Both are included in the WhatsApp message and Firestore order document.
+  </Step>
+  <Step title="Stop GPS tracking">
+    Tap **✕ Detener** inside the live box to stop location tracking. The live box hides and the GPS data is cleared from the order.
+  </Step>
+</Steps>
+
+### GPS in the WhatsApp message
+
+When GPS coordinates are captured, the delivery section of the WhatsApp message includes an extra line:
+
+```
+🚴 *ENTREGA*
+  ▸ 🏠 Jr. Los Pinos 345
+  ▸ 📍 https://maps.google.com/?q=-6.483,-76.363
+  ▸ 📌 Zona: Morales — S/ 3.00
+```
+
+The GPS link also appears in the nota de venta as a clickable **📍 GPS: Ver ubicación →** row.
+
+### GPS in the Firestore document
+
+```javascript
+{
+  gps_url:    "https://maps.google.com/?q=-6.483,-76.363",
+  gps_coords: { lat: -6.483, lng: -76.363 }
+}
+```
+
+<Warning>
+  GPS sharing requires HTTPS. On `http://` connections the Geolocation API is blocked by the browser. The app is hosted on GitHub Pages (HTTPS), so this is not an issue in production.
+</Warning>
+
+## Delivery address in the order
+
+The address the customer types in the **Dirección de entrega** field is included in every part of the order:
+
+- In the WhatsApp message under `🚴 *ENTREGA*`
+- In the Firestore `pedidos` document as `direccion`
+- In the nota de venta under **Dirección**
+
+If the customer also shares GPS, the Google Maps link supplements the text address rather than replacing it.
+
+## Order status flow
+
+Each order in Firestore has an `estado` field that tracks its lifecycle. The delivery panel (accessible to riders via a PIN-protected interface) advances orders through these states:
+
+<Steps>
+  <Step title="Pendiente">
+    The default state when an order is placed. The business has received the WhatsApp message and the Firestore document is created.
+  </Step>
+  <Step title="Pagado">
+    The business confirms payment has been received (Yape, transfer, or cash on delivery expected).
+  </Step>
+  <Step title="En reparto">
+    A delivery rider has picked up the order and is on the way. The rider uses the [deliverista panel](/admin/deliverista-panel) to look up the order by the customer's phone number.
+  </Step>
+  <Step title="Confirmado / Entregado">
+    The customer taps **✅ SÍ, YA RECIBÍ MI PEDIDO** in the delivery confirmation modal, or the rider confirms delivery from the deliverista panel. The Firestore document is updated:
+    ```javascript
+    {
+      confirmacion_cliente: true,
+      confirmado_at: <serverTimestamp>,
+      estado: "entregado"
+    }
+    ```
+    This triggers generation of the [nota de venta](/features/ordering#nota-de-venta-sale-note).
+  </Step>
+</Steps>
+
+<Note>
+  The customer-side confirmation modal appears automatically 6 seconds after the success screen. If the customer dismisses it, a floating green **📦 Confirmar entrega** button remains visible until they confirm.
+</Note>

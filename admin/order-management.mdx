@@ -1,0 +1,215 @@
+---
+title: "Order Management"
+description: "Complete guide to the order lifecycle, Firestore pedidos structure, WhatsApp workflow, and status management."
+---
+
+Orders in ASWA flow through four statuses from placement to confirmed delivery. The business operates primarily through WhatsApp — the app generates a pre-filled message that the customer sends, and the business confirms payment and dispatches delivery manually.
+
+## Order lifecycle
+
+```
+pendiente → pagado → en_reparto → confirmado
+```
+
+<CardGroup cols={2}>
+  <Card title="pendiente" icon="clock">
+    Order placed. Customer sent the WhatsApp message. Awaiting payment confirmation by the business.
+  </Card>
+  <Card title="pagado" icon="circle-check">
+    Business confirmed the payment (Yape, Plin, transfer, or cash). Order queued for dispatch.
+  </Card>
+  <Card title="en_reparto" icon="person-biking">
+    Deliverista has picked up the order and is en route to the customer's address.
+  </Card>
+  <Card title="confirmado" icon="house-chimney-check">
+    Customer confirmed receipt via the app. Nota de Venta generated. Sale recorded.
+  </Card>
+</CardGroup>
+
+<Note>
+  There is an intermediate status `entregado_por_deliverista` that exists between `en_reparto` and `confirmado`. It is set when the driver confirms delivery via the [Deliverista Panel](/admin/deliverista-panel) but before the customer taps "Sí, ya recibí". It is an internal flag not shown to customers.
+</Note>
+
+### Status transition details
+
+<Accordion title="pendiente — order placed">
+  Set automatically when the customer completes the order form and taps **ENVIAR PEDIDO POR WHATSAPP**.
+
+  The app writes a new document to the `pedidos` collection with `estado: 'pendiente'` and then opens WhatsApp with a pre-filled message. The Firestore document is created before the WhatsApp redirect so the order is recorded even if the customer closes WhatsApp without sending.
+</Accordion>
+
+<Accordion title="pagado — payment confirmed">
+  Set manually by the business owner or admin in **Firebase Console → Firestore → pedidos → [document] → Edit field**.
+
+  Change `estado` from `"pendiente"` to `"pagado"` once you have verified the Yape, Plin, or bank transfer. For cash orders, mark `pagado` when the deliverista picks up the order.
+</Accordion>
+
+<Accordion title="en_reparto — out for delivery">
+  Set manually by the business once the order is handed to the deliverista.
+
+  Update `estado` to `"en_reparto"` in Firebase Console. The customer app shows this status if they check their order.
+</Accordion>
+
+<Accordion title="confirmado — delivered and verified">
+  Set automatically when the customer taps **"✅ SÍ, YA RECIBÍ MI PEDIDO"** in the app after the deliverista has confirmed delivery.
+
+  At this point:
+  - The Nota de Venta is generated client-side
+  - The customer's loyalty pedidos counter increments
+  - The discount for the next order may be applied
+  - The `estado` field becomes `"confirmado"`
+</Accordion>
+
+## How orders arrive via WhatsApp
+
+The customer fills out the order form (products, name, phone, address, district, payment method) and taps **CONTINUAR**. A summary modal appears. Tapping **ENVIAR PEDIDO POR WHATSAPP** first saves the order to Firestore, then opens WhatsApp with a pre-filled message directed at the business numbers.
+
+### WhatsApp contact workflow
+
+<Steps>
+  <Step title="Customer sends the order">
+    The app opens `https://api.whatsapp.com/send?phone=51955273229&text=[encoded message]` (or the secondary number `51986445531` as fallback). The customer taps send in WhatsApp.
+  </Step>
+  <Step title="Business receives the message">
+    The message appears in the business WhatsApp inbox. It contains the full order summary including products, quantities, address, district, payment method, and total.
+  </Step>
+  <Step title="Business confirms payment">
+    For digital payments (Yape/Plin/transfer), verify the incoming transaction in the payment app. For cash, confirm verbally. Update `estado` to `pagado` in Firebase Console.
+  </Step>
+  <Step title="Dispatch delivery">
+    Hand the order to the deliverista. Update `estado` to `en_reparto` in Firebase Console. The deliverista uses the in-app panel to confirm delivery on arrival.
+  </Step>
+  <Step title="Delivery confirmed">
+    The deliverista opens the [Deliverista Panel](/admin/deliverista-panel), enters the PIN, searches by customer phone, and taps **CONFIRMAR QUE ENTREGUÉ**. Firestore is updated. The customer receives a notification to confirm receipt.
+  </Step>
+  <Step title="Customer confirms receipt">
+    The customer taps **"✅ SÍ, YA RECIBÍ MI PEDIDO"** in the app. The order moves to `confirmado` and the Nota de Venta is generated.
+  </Step>
+</Steps>
+
+### Sample WhatsApp message format
+
+The app generates a structured message with the order details. The exact format is assembled in JavaScript from the cart state (`ST`) and customer inputs:
+
+```
+🌽 *NUEVO PEDIDO — LA RICA CHICHA ASWA*
+
+👤 Cliente: María García
+📱 Celular: 987654321
+📍 Dirección: Jr. Lima 123, Morales
+🗺️ Zona: Morales
+
+🛒 *Pedido:*
+• 2× Chicha ASWA 2L — S/ 18.00
+• 1× Chicha ASWA 3L — S/ 13.00
+
+🚚 Delivery: S/ 3.00
+💰 *TOTAL: S/ 34.00*
+
+💳 Pago: Yape
+```
+
+## The `pedidos` Firestore collection
+
+Each order is stored as a document in the top-level `pedidos` collection. Documents are created by the client app via Firebase anonymous auth.
+
+<Accordion title="pedidos document fields">
+  | Field | Type | Description |
+  |---|---|---|
+  | `clienteNombre` | string | Customer full name |
+  | `clienteTelefono` | string | Customer phone number (9 digits, starts with 9) |
+  | `direccion` | string | Delivery address entered by customer |
+  | `distrito` | string | Delivery zone: `morales`, `tarapoto`, or `banda` |
+  | `productos` | array | Array of objects `{id, nombre, cantidad, precio}` |
+  | `total` | number | Total amount in soles (S/) including delivery |
+  | `estado` | string | `pendiente` \| `pagado` \| `en_reparto` \| `confirmado` |
+  | `metodoPago` | string | `yape` \| `transferencia` \| `efectivo` \| `tarjeta` |
+  | `fechaPedido` | timestamp | Firestore server timestamp set at order creation |
+  | `codigoRef` | string | Referral code used (if any) |
+  | `coordenadas` | object | `{lat, lng}` GPS coordinates if customer granted location access |
+  | `businessId` | string | Always `"aswa001"` — used for multi-tenant queries |
+  | `confirmacion_deliverista` | boolean | `true` after driver confirms delivery |
+  | `deliverista_at` | timestamp | When driver confirmation was recorded |
+</Accordion>
+
+### Example document
+
+```json
+{
+  "clienteNombre": "María García",
+  "clienteTelefono": "987654321",
+  "direccion": "Jr. Lima 123, frente al parque",
+  "distrito": "morales",
+  "productos": [
+    { "id": "p2l", "nombre": "Chicha ASWA 2L", "cantidad": 2, "precio": 9 },
+    { "id": "p3l", "nombre": "Chicha ASWA 3L", "cantidad": 1, "precio": 13 }
+  ],
+  "total": 34.00,
+  "estado": "pendiente",
+  "metodoPago": "yape",
+  "fechaPedido": "2026-03-17T14:23:00Z",
+  "codigoRef": "ASWA-AB12CD34",
+  "businessId": "aswa001"
+}
+```
+
+## Manually updating order status in Firebase Console
+
+<Steps>
+  <Step title="Open Firebase Console">
+    Go to [console.firebase.google.com](https://console.firebase.google.com) and select the **pedidos-aswa-peru** project.
+  </Step>
+  <Step title="Navigate to Firestore">
+    Click **Firestore Database** in the left sidebar, then select the **pedidos** collection.
+  </Step>
+  <Step title="Find the order">
+    Orders are listed by auto-generated document ID. Use the search/filter to find by `clienteTelefono` or browse by `fechaPedido` descending.
+  </Step>
+  <Step title="Edit the estado field">
+    Click the document, then click the pencil icon next to the `estado` field. Type the new status value and press **Update**.
+
+    Valid values: `pendiente` · `pagado` · `en_reparto` · `confirmado`
+  </Step>
+</Steps>
+
+<Tip>
+  Bookmark the Firebase Console Firestore view with a filter for your `businessId` to streamline daily order management. You can also use the Firebase Admin SDK or a custom admin panel to bulk-update statuses.
+</Tip>
+
+## Sale notes (Nota de Venta)
+
+The Nota de Venta is generated entirely client-side in the browser when the customer confirms receipt. It is not stored in Firestore — it is rendered as an HTML sheet that the customer can download as a PDF or print.
+
+### What the nota contains
+
+- **Business header**: LA RICA CHICHA - ASWA, address (Morales - San Martín), WhatsApp numbers
+- **Note number**: auto-generated reference from the Firestore document ID
+- **Date and time** of confirmation
+- **Customer details**: name, phone, address, GPS link (if available), zone, payment method, loyalty level badge
+- **Referral code**: the customer's personal discount code (if they have one)
+- **Product table**: product name, quantity, unit price, subtotal per line
+- **Delivery cost** as a separate line item
+- **Discount applied** (if any loyalty or referral discount was active)
+- **Grand total** in large Bebas Neue font
+- **Footer**: thank-you message, business address
+
+### Download and print options
+
+The nota modal has three action buttons:
+- **📥 Descargar PDF** — generates a PDF via `html2canvas` / jsPDF (client-side)
+- **🖨️ Imprimir** — calls `window.print()` with the nota sheet
+- **✕ Cerrar nota** — dismisses the modal
+
+<Warning>
+  Because the nota is generated client-side and not saved to Firestore, customers who close the modal without downloading will not be able to retrieve it later. Consider adding server-side nota storage if accounting records are required.
+</Warning>
+
+## Admin view (Panel Administrativo)
+
+The current version of ASWA does not include a dedicated admin dashboard in the app. Order monitoring is done through:
+
+1. **Firebase Console** — direct Firestore access
+2. **WhatsApp** — orders arrive as messages, replies track status
+3. **Firestore queries** — using the Firebase Console's query builder to filter by `estado`, `businessId`, or date range
+
+For a future admin panel, the recommended approach is a separate authenticated web app querying the `pedidos` collection with an admin Firebase account that bypasses customer-facing Security Rules.

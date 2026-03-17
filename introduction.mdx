@@ -1,0 +1,96 @@
+---
+title: "ASWA — La Rica Chicha"
+description: "A mobile-first digital ordering platform for artisan chicha, powered by Firebase and WhatsApp."
+---
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get your ordering platform live in minutes
+  </Card>
+  <Card title="Core Features" icon="star" href="/features/ordering">
+    Explore the ordering, delivery, and loyalty systems
+  </Card>
+  <Card title="Admin Panel" icon="shield" href="/admin/deliverista-panel">
+    Manage orders and delivery drivers
+  </Card>
+  <Card title="Deployment" icon="cloud" href="/deployment/firebase-setup">
+    Deploy to Firebase and GitHub Pages
+  </Card>
+</CardGroup>
+
+## What is ASWA?
+
+ASWA is a **mobile-first digital ordering platform** built for La Rica Chicha, a traditional artisan corn chicha business in Tarapoto and Morales, Peru. It brings modern e-commerce tools — interactive catalog, real-time order tracking, delivery management, and customer loyalty — to a small local business through a zero-install progressive web app.
+
+Customers open the page on their phone, select their chicha, enter their address, choose a payment method, and the order flows directly to the business via WhatsApp — no app download required.
+
+## Architecture overview
+
+ASWA is a **single-page application** built with vanilla HTML, CSS, and JavaScript. It uses Firebase as its backend for authentication, database, and file storage.
+
+```
+index.html          ← Main ordering app (SPA with 4 tab views)
+ugc.html            ← UGC submission & gallery page
+js/
+  app.js            ← Cart, LoyaltySystem, Missions classes
+  config.js         ← Firebase environment configuration
+  firebase.js       ← Firebase initialization
+  osm-maps.js       ← OpenStreetMap integration
+css/
+  styles.css        ← Global stylesheet
+```
+
+The Firebase project (`pedidos-aswa-peru`) powers:
+
+- **Firestore** — Orders, customers, business config, UGC
+- **Authentication** — Anonymous sign-in for frictionless ordering
+- **Storage** — UGC photo uploads
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Product catalog" icon="basket-shopping">
+    Interactive cards for 2L, 3L, and 4L chicha presentations with real-time quantity controls
+  </Card>
+  <Card title="Smart delivery" icon="truck">
+    Automatic delivery fee calculation by district: Morales, Tarapoto, Banda de Shilcayo
+  </Card>
+  <Card title="WhatsApp integration" icon="whatsapp">
+    One-tap order submission via pre-filled WhatsApp message to the business
+  </Card>
+  <Card title="Loyalty tiers" icon="trophy">
+    Bronze → Silver → Gold → Diamond tier system with discounts and referral codes
+  </Card>
+  <Card title="UGC gallery" icon="camera">
+    Customers submit photos, business approves and displays them in a community gallery
+  </Card>
+  <Card title="Delivery panel" icon="motorcycle">
+    PIN-protected driver interface for confirming order delivery in real time
+  </Card>
+  <Card title="Payment options" icon="credit-card">
+    Cash, Yape QR, bank transfer, and card payment options
+  </Card>
+  <Card title="Sale notes" icon="receipt">
+    Auto-generated sale receipts (nota de venta) downloadable as images
+  </Card>
+</CardGroup>
+
+## Multi-business vision
+
+La Rica Chicha is the **first deployed instance** of ASWA. The platform is architected for multi-business expansion: each business is identified by a `BUSINESS_ID` constant, and all business-specific data (name, WhatsApp numbers, pricing) is stored in the `negocios/{businessId}` Firestore document.
+
+<Info>
+  The roadmap includes serving each business from a subdomain (e.g., `negocio.laricachicha.com`) or URL parameter (`?b=negocio001`), with a central admin dashboard for onboarding new businesses.
+</Info>
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | HTML5, CSS3, Vanilla JavaScript (ES6+) |
+| Fonts | Poppins, Bebas Neue (Google Fonts) |
+| Backend | Firebase (Firestore, Auth, Storage) |
+| Maps | OpenStreetMap / Google Maps Embed |
+| Payments | Yape QR (image-based) |
+| Hosting | GitHub Pages |
+| Notifications | WhatsApp Business API (wa.me links) |

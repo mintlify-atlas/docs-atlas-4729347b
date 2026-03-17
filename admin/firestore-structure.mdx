@@ -1,0 +1,311 @@
+---
+title: "Firestore Structure"
+description: "Complete Firestore data model for ASWA: collections, field-by-field reference, and Security Rules guidance."
+---
+
+ASWA uses Cloud Firestore (Firebase) as its only backend database. There are four top-level collections. All client reads and writes are performed by anonymously authenticated users — actual data protection is enforced via Firestore Security Rules, not the API key.
+
+## Security model
+
+<Note>
+  The Firebase API key embedded in `index.html` and `ugc.html` is **public by design**. Google explicitly states that Web API keys are not secrets — they identify the project, not a privileged user. Security comes from:
+
+  1. **Firestore Security Rules** — define which documents authenticated users can read or write
+  2. **Authorized Domains** in Firebase Console — restricts which origins can use the project
+  3. **App Check** with reCAPTCHA (optional, recommended for production)
+
+  Never rely on obscuring the API key. Write restrictive Security Rules instead.
+</Note>
+
+### Restricting the API key by domain
+
+To prevent your API key from being used on other origins:
+
+1. Open [Google Cloud Console](https://console.cloud.google.com) → **APIs & Services** → **Credentials**
+2. Click the **Browser key** associated with `pedidos-aswa-peru`
+3. Under **Application restrictions** → select **HTTP referrers**
+4. Add: `jsangama.github.io/*`
+5. Save
+
+## Collections overview
+
+| Collection | Purpose | Document key |
+|---|---|---|
+| `negocios/{businessId}` | Business configuration and contact info | `aswa001` |
+| `pedidos` | Customer orders | Auto-generated ID |
+| `clientes` | Customer profiles and loyalty data | Auto-generated ID |
+| `ugc` | User-generated content submissions | Auto-generated ID |
+
+---
+
+## `negocios/{businessId}`
+
+One document per business. The ASWA document ID is `aswa001` (configured via `const BUSINESS_ID = "aswa001"` in the source). Loaded at app startup to populate the UI and WhatsApp numbers.
+
+<Accordion title="negocios field reference">
+  | Field | Type | Description |
+  |---|---|---|
+  | `nombre` | string | Business display name shown in the app header (e.g. `"La Rica Chicha"`) |
+  | `whatsapp1` | string | Primary WhatsApp number in international format without `+` (e.g. `"51955273229"`) |
+  | `whatsapp2` | string | Secondary WhatsApp number as fallback |
+  | `logoUrl` | string | Firebase Storage URL for the business logo |
+  | `descripcion` | string | Short tagline displayed in the app subtitle |
+  | `redesSociales` | map | Social links: `{ facebook, instagram, tiktok, youtube, maps }` |
+  | `precioDelivery` | map | Delivery prices by zone: `{ morales, tarapoto, banda, nacional }` |
+</Accordion>
+
+### Example document
+
+```json
+{
+  "nombre": "La Rica Chicha",
+  "whatsapp1": "51955273229",
+  "whatsapp2": "51986445531",
+  "redesSociales": {
+    "instagram": "https://instagram.com/laricachicha",
+    "facebook": "https://facebook.com/laricachicha",
+    "maps": "https://maps.google.com/?q=..."
+  }
+}
+```
+
+---
+
+## `pedidos`
+
+Each customer order is one document. Documents are created client-side by anonymously authenticated users. The `businessId` field is included in every document to support multi-tenant queries.
+
+<Accordion title="pedidos field reference">
+  | Field | Type | Description |
+  |---|---|---|
+  | `businessId` | string | Tenant identifier — always `"aswa001"` for La Rica Chicha |
+  | `clienteNombre` | string | Customer full name |
+  | `clienteTelefono` | string | Customer phone number (9 digits, starts with `9`) |
+  | `direccion` | string | Delivery address as entered by the customer |
+  | `distrito` | string | Delivery zone: `morales` \| `tarapoto` \| `banda` |
+  | `productos` | array | Array of `{ id, nombre, cantidad, precio }` objects |
+  | `total` | number | Total amount in soles (S/) including delivery cost |
+  | `estado` | string | `pendiente` \| `pagado` \| `en_reparto` \| `confirmado` |
+  | `metodoPago` | string | `yape` \| `transferencia` \| `efectivo` \| `tarjeta` \| `plin` |
+  | `fechaPedido` | timestamp | Firestore server timestamp set at order creation |
+  | `codigoRef` | string | Referral code used by this customer (if any) |
+  | `coordenadas` | map | `{ lat, lng }` — GPS coordinates if customer shared location |
+  | `confirmacion_deliverista` | boolean | `true` when deliverista confirms delivery via the panel |
+  | `deliverista_at` | timestamp | Server timestamp of deliverista confirmation |
+</Accordion>
+
+### Order status values
+
+| Status | Meaning | Set by |
+|---|---|---|
+| `pendiente` | Order placed, awaiting payment | App (automatic) |
+| `pagado` | Payment confirmed | Business (manual in Firebase Console) |
+| `en_reparto` | Out for delivery | Business (manual in Firebase Console) |
+| `entregado_por_deliverista` | Driver confirmed delivery | Deliverista Panel (automatic) |
+| `confirmado` | Customer confirmed receipt | App (automatic) |
+
+### Example document
+
+```json
+{
+  "businessId": "aswa001",
+  "clienteNombre": "Carlos Pérez",
+  "clienteTelefono": "956123456",
+  "direccion": "Jr. Shapaja 456, cerca al mercado",
+  "distrito": "tarapoto",
+  "productos": [
+    { "id": "p4l", "nombre": "Chicha ASWA Familiar 4L", "cantidad": 1, "precio": 15 }
+  ],
+  "total": 19.00,
+  "estado": "pendiente",
+  "metodoPago": "efectivo",
+  "fechaPedido": "2026-03-17T10:05:00Z",
+  "codigoRef": "",
+  "coordenadas": { "lat": -6.4847, "lng": -76.3725 }
+}
+```
+
+---
+
+## `clientes`
+
+One document per customer, keyed by their profile in Firestore (not by phone number directly). The phone is stored as a field and queried with `where('telefono', '==', tel)`. The app looks up and upserts this document whenever a returning customer enters their phone number.
+
+<Accordion title="clientes field reference">
+  | Field | Type | Description |
+  |---|---|---|
+  | `businessId` | string | Tenant identifier |
+  | `telefono` | string | Phone number — used as the primary lookup key |
+  | `nombre` | string | Customer display name |
+  | `nivel` | string | Loyalty tier: `bronce` \| `plata` \| `oro` \| `diamante` |
+  | `pedidos` | number | Total orders placed (used to compute tier) |
+  | `descuento` | number | Active discount percentage (0–20) |
+  | `codigoRef` | string | Customer's unique referral code (format: `ASWA-XXXXXXXX`) |
+  | `referidoPor` | string | Referral code that was used when this customer first ordered |
+  | `fechaRegistro` | timestamp | When the customer profile was first created |
+  | `vencimientoDescuento` | timestamp | Expiry date for the current active discount |
+  | `pedidos_totales` | number | Cumulative order count (used for tier calculation) |
+</Accordion>
+
+### Loyalty tiers
+
+| Tier | Orders required | Discount |
+|---|---|---|
+| Bronce | 0 – 4 | 0% |
+| Plata | 5 – 9 | 10% |
+| Oro | 10 – 19 | 15% |
+| Diamante | 20+ | 20% |
+
+### Referral code format
+
+Codes are generated client-side from the Firebase Anonymous Auth UID:
+
+```javascript
+'ASWA-' + currentUser.uid.slice(-8).toUpperCase()
+  .replace(/O/g, '0')
+  .replace(/I/g, '1')
+  .replace(/L/g, '1');
+// Example: ASWA-AB12CD34
+```
+
+Substitutions avoid ambiguous characters (`O`→`0`, `I`→`1`, `L`→`1`) to prevent confusion when sharing verbally or in print.
+
+### Example document
+
+```json
+{
+  "businessId": "aswa001",
+  "telefono": "956123456",
+  "nombre": "Carlos Pérez",
+  "nivel": "plata",
+  "pedidos": 6,
+  "pedidos_totales": 6,
+  "descuento": 10,
+  "codigoRef": "ASWA-AB12CD34",
+  "referidoPor": "ASWA-XY98ZW76",
+  "fechaRegistro": "2025-11-01T08:00:00Z",
+  "vencimientoDescuento": "2026-04-30T23:59:59Z"
+}
+```
+
+---
+
+## `ugc`
+
+User-generated content submitted via the **Bono / Comparte y Gana** page. Each submission is one document. The business reviews submissions in Firebase Console and approves or rejects them. Approved content appears in the gallery.
+
+<Accordion title="ugc field reference">
+  | Field | Type | Description |
+  |---|---|---|
+  | `businessId` | string | Tenant identifier |
+  | `nombre` | string | Submitter's name |
+  | `tipo` | string | Content type: `foto` \| `video` \| `reels` \| `review` |
+  | `plataforma` | string | Platform where content is posted (instagram, tiktok, etc.) |
+  | `usuario` | string | Submitter's social media handle (`@username`) |
+  | `link` | string | URL to the published content |
+  | `texto` | string | Review or description text |
+  | `fotoUrl` | string | Firebase Storage URL for uploaded image/video |
+  | `estado` | string | `pendiente` \| `aprobado` \| `rechazado` |
+  | `likes` | number | Like count for gallery ranking |
+  | `destacado` | boolean | `true` if featured in gallery (shown first) |
+  | `utilizado` | boolean | `true` if used in marketing materials |
+  | `fechaEnvio` | timestamp | When the submission was made |
+  | `campana` | string | Campaign identifier (e.g. `"verano2026"`) |
+</Accordion>
+
+### Content moderation workflow
+
+<Steps>
+  <Step title="Submission arrives">
+    Customer submits via the Bono page. A document is written to `ugc` with `estado: 'pendiente'`.
+  </Step>
+  <Step title="Review in Firebase Console">
+    Open **Firestore → ugc** and sort by `fechaEnvio` descending. Review the `fotoUrl`, `texto`, and `link` fields.
+  </Step>
+  <Step title="Approve or reject">
+    Edit the `estado` field:
+    - Set to `"aprobado"` to make it visible in the gallery
+    - Set to `"rechazado"` to hide it permanently
+  </Step>
+  <Step title="Feature content">
+    Set `destacado: true` to pin the submission to the top of the gallery. Set `utilizado: true` when you use the content in marketing materials as a record.
+  </Step>
+</Steps>
+
+### Gallery filters
+
+The gallery page supports four filter modes:
+
+| Filter button | Query logic |
+|---|---|
+| **Todos** | `estado == 'aprobado'` |
+| **Destacados** | `estado == 'aprobado'` AND `destacado == true` |
+| **Recientes** | `estado == 'aprobado'`, sorted by `fechaEnvio` descending |
+| **Populares** | `estado == 'aprobado'`, sorted by `likes` descending |
+
+---
+
+## Firestore Security Rules guidance
+
+The rules below are a recommended baseline. Apply them in **Firebase Console → Firestore → Rules**.
+
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Business config — public read, no client writes
+    match /negocios/{businessId} {
+      allow read:  if true;
+      allow write: if false; // admin SDK only
+    }
+
+    // Orders — authenticated users can create; no client updates
+    // (status updates done via Admin SDK or Firebase Console)
+    match /pedidos/{pedidoId} {
+      allow read:  if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.businessId is string
+                    && request.resource.data.clienteTelefono is string;
+      // Deliverista confirmation update only
+      allow update: if request.auth != null
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['confirmacion_deliverista', 'deliverista_at', 'estado']);
+    }
+
+    // Customer profiles — each user can only read/write their own
+    match /clientes/{clienteId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // UGC — authenticated users can create; only admin can approve
+    match /ugc/{ugcId} {
+      allow read:   if resource.data.estado == 'aprobado' || request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if false; // admin SDK only
+    }
+  }
+}
+```
+
+<Warning>
+  The rules above are a starting point. The current production rules may differ. Review and test rules carefully using the **Rules Playground** in Firebase Console before deploying. Overly permissive rules like `allow read, write: if true` expose all customer data.
+</Warning>
+
+<Tip>
+  Use **Firebase Emulator Suite** (`firebase emulators:start`) to test Security Rules locally before pushing to production. Write unit tests with `@firebase/rules-unit-testing` to cover all read/write paths.
+</Tip>
+
+## Indexes
+
+The app runs compound queries that require composite Firestore indexes. Add these in **Firebase Console → Firestore → Indexes**:
+
+| Collection | Fields | Order | Usage |
+|---|---|---|---|
+| `pedidos` | `businessId` ASC, `telefono` ASC | — | Deliverista order lookup |
+| `clientes` | `businessId` ASC, `telefono` ASC | — | Customer profile lookup |
+| `ugc` | `businessId` ASC, `estado` ASC, `fechaEnvio` DESC | — | Gallery by recency |
+| `ugc` | `businessId` ASC, `estado` ASC, `likes` DESC | — | Gallery by popularity |
+| `ugc` | `businessId` ASC, `estado` ASC, `destacado` ASC | — | Featured gallery |
+
+Firestore will also prompt you in the browser console with direct links to create missing indexes when a query fails at runtime.

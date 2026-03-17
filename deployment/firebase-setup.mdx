@@ -1,0 +1,218 @@
+---
+title: "Firebase setup"
+description: "Configure a Firebase project to power ASWA's Firestore database, anonymous authentication, and Storage for UGC photo uploads."
+---
+
+ASWA uses Firebase as its entire backend — Firestore stores orders and customer data, Authentication signs users in anonymously so the app works without a login screen, and Storage holds UGC photos submitted by customers.
+
+<Note>
+  The Firebase web API key is **public by design**. Google's official guidance is that it is safe to ship in client-side code. Real security comes from Firestore Security Rules, authorized domains, and (optionally) App Check — not from hiding the key.
+</Note>
+
+## Prerequisites
+
+- A Google account
+- The ASWA source code cloned locally
+
+---
+
+## Setup steps
+
+<Steps>
+
+<Step title="Create a Firebase project">
+Go to [console.firebase.google.com](https://console.firebase.google.com) and click **Add project**.
+
+1. Enter a project name (e.g., `pedidos-aswa-peru`).
+2. Disable Google Analytics if you don't need it, then click **Create project**.
+
+Wait for provisioning to complete, then click **Continue**.
+</Step>
+
+<Step title="Enable Firestore Database">
+1. In the left sidebar, click **Build → Firestore Database**.
+2. Click **Create database**.
+3. Choose **Start in production mode** (you will add rules in a later step).
+4. Select region **nam5 (us-central)** or **us-central1** — both resolve to the same multi-region. Click **Enable**.
+
+Firestore will take a moment to provision.
+</Step>
+
+<Step title="Enable Anonymous Authentication">
+1. In the sidebar, click **Build → Authentication**.
+2. Click **Get started**, then open the **Sign-in method** tab.
+3. Click **Anonymous**, toggle **Enable**, and click **Save**.
+
+ASWA calls `signInAnonymously()` on page load so every visitor has a Firebase identity without requiring an account. This identity is required by the Firestore security rules you will deploy later.
+</Step>
+
+<Step title="Enable Firebase Storage">
+1. In the sidebar, click **Build → Storage**.
+2. Click **Get started** and accept the default security rules for now.
+3. Choose the same region you selected for Firestore (us-central1) and click **Done**.
+
+Storage is used exclusively for the UGC (user-generated content) feature — customers upload photos that appear in the gallery after admin approval.
+</Step>
+
+<Step title="Register a web app and get your config">
+1. Click the gear icon next to **Project Overview** and choose **Project settings**.
+2. Scroll to **Your apps** and click the **Web** icon (`</>`).
+3. Enter an app nickname (e.g., `aswa-web`) and click **Register app**.
+4. Firebase will show you a config object like this:
+
+```javascript
+const firebaseConfig = {
+  apiKey:            "AIzaSy...",
+  authDomain:        "your-project.firebaseapp.com",
+  projectId:         "your-project",
+  storageBucket:     "your-project.appspot.com",
+  messagingSenderId: "123456789",
+  appId:             "1:123456789:web:abc123"
+};
+```
+
+Copy these values — you will need them in the next step.
+</Step>
+
+<Step title="Replace the Firebase config in index.html and ugc.html">
+Open `index.html` and find the `cfg` object (around line 38):
+
+```javascript
+const cfg = {
+  apiKey:            "AIzaSyAsAIZEEuE4Ha3xCFgfn8hBTictVi4CTIk",
+  authDomain:        "pedidos-aswa-peru.firebaseapp.com",
+  projectId:         "pedidos-aswa-peru",
+  storageBucket:     "pedidos-aswa-peru.appspot.com",
+  messagingSenderId: "213964983594",
+  appId:             "1:213964983594:web:92d761a6e0cce9ddaa253"
+};
+```
+
+Replace every value with the credentials from your own Firebase project. Repeat the same replacement in `ugc.html` if it contains a separate config block.
+
+<Warning>
+Do **not** leave the original `pedidos-aswa-peru` credentials in your fork. Those credentials point to a live production database belonging to the La Rica Chicha deployment.
+</Warning>
+</Step>
+
+<Step title="Deploy Firestore Security Rules">
+ASWA relies on four top-level collections: `pedidos`, `clientes`, `ugc`, and `negocios`. The rules below enforce that:
+
+- Business config (`negocios`) is publicly readable but not writable from the client.
+- Orders and customer records require an authenticated session (anonymous auth counts).
+- UGC photos can be submitted by anyone authenticated, are publicly readable, but cannot be modified or deleted from the client.
+
+In the Firebase Console, go to **Firestore Database → Rules** and replace the default rules with:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /negocios/{businessId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /pedidos/{pedidoId} {
+      allow create: if request.auth != null;
+      allow read, update: if request.auth != null;
+    }
+    match /clientes/{clienteId} {
+      allow read, write: if request.auth != null;
+    }
+    match /ugc/{ugcId} {
+      allow create: if request.auth != null;
+      allow read: if true;
+      allow update, delete: if false;
+    }
+  }
+}
+```
+
+Click **Publish**.
+</Step>
+
+<Step title="Add your domain to authorized domains">
+1. Go to **Authentication → Settings → Authorized domains**.
+2. Click **Add domain** and enter your GitHub Pages URL: `{username}.github.io`.
+
+Without this step, Firebase will block authentication requests from your deployed site.
+</Step>
+
+<Step title="Restrict the API key to your domain">
+This step prevents the API key from being usable on any origin other than yours.
+
+1. Open [console.cloud.google.com](https://console.cloud.google.com) and select your Firebase project.
+2. Navigate to **APIs & Services → Credentials**.
+3. Click the **Browser key** that Firebase created automatically.
+4. Under **Application restrictions**, choose **HTTP referrers (websites)**.
+5. Click **Add an item** and enter your domain:
+
+```
+{username}.github.io/*
+```
+
+6. Click **Save**.
+
+If you use a custom domain later, add it here as well.
+</Step>
+
+<Step title="Create the initial business document">
+ASWA reads business configuration from the `negocios` collection using `BUSINESS_ID = "aswa001"`. You must create this document manually.
+
+1. In Firestore, click **Start collection** and enter `negocios` as the collection ID.
+2. Set the document ID to `aswa001`.
+3. Add the following fields:
+
+| Field | Type | Example value |
+|-------|------|---------------|
+| `nombre` | string | `La Rica Chicha` |
+| `whatsapp1` | string | `51955273229` |
+| `whatsapp2` | string | `51986445531` |
+| `direccion` | string | `Jr. Sargento Lores #425, Morales` |
+| `yape` | string | `51947999736` |
+
+The app will fall back to hardcoded defaults if this document is missing, but having it in Firestore lets you update business info without redeploying code.
+</Step>
+
+<Step title="Change the default delivery PIN">
+The deliverista panel (the driver-facing order confirmation screen) is protected by a 4-digit PIN. The default PIN in the source code is `8521`.
+
+Open `index.html` and find:
+
+```javascript
+const DELIVERY_PIN = "8521";
+```
+
+Change this to a PIN only your delivery team knows.
+
+<Warning>
+**Change this PIN before going live.** The default value `8521` is published in a public repository. Anyone who has read this documentation can enter it. A malicious actor could use it to mark orders as delivered prematurely.
+</Warning>
+</Step>
+
+</Steps>
+
+---
+
+## SDK versions
+
+ASWA imports Firebase directly from the Google CDN using ES modules — no bundler or npm install required.
+
+```javascript
+import { initializeApp }
+  from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+import { getFirestore, collection, addDoc, query, where,
+         getDocs, serverTimestamp, doc, updateDoc, getDoc }
+  from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+import { getAuth, signInAnonymously, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+```
+
+To upgrade Firebase, change the version number in these import URLs across `index.html` and `ugc.html`. Check the [Firebase release notes](https://firebase.google.com/support/release-notes/js) for breaking changes before upgrading.
+
+---
+
+## Next steps
+
+- [Deploy to GitHub Pages](/deployment/github-pages) to make the site publicly accessible.
+- Review the Firestore Security Rules whenever you add a new collection.

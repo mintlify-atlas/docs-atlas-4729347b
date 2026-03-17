@@ -1,0 +1,137 @@
+---
+title: "Payments"
+description: "The four payment methods available in ASWA: Yape QR, bank transfer, cash on delivery, and card — plus voucher upload and how payment choice flows into the order."
+---
+
+## Payment options grid
+
+The **Método de pago** section displays four options in a 4-column grid (`.pgrd`). Tapping any option highlights it with a yellow border and updates the order.
+
+<Tabs>
+  <Tab title="Efectivo">
+    **Cash on delivery.** The default selection. When Efectivo is active, a vuelto (change) calculator appears:
+
+    - **¿Con cuánto pagarás?** — the customer enters the denomination they will pay with.
+    - The app calculates and displays: `Vuelto: S/ X.XX`
+
+    The cash amount and expected change are included in the WhatsApp order message:
+    ```
+    💳 *PAGO: Efectivo*
+      ▸ Con: S/ 50.00
+      ▸ Vuelto: *S/ 17.30*
+    ```
+  </Tab>
+  <Tab title="Yape">
+    **Mobile wallet via QR code.** Selecting Yape shows the Yape payment box (`.ybox`) with:
+
+    - A **📱 YAPE** pill badge
+    - The business QR code image (`yape del negocio.jpg`)
+    - The Yape phone number: **+51 947 999 736**
+    - Instruction text: *Escanea el QR o transfiere al número de arriba*
+
+    The QR image is 190×190px, displayed with rounded corners. If the image fails to load, it is hidden gracefully.
+
+    The Yape number `+51 947 999 736` also appears in the nota de venta footer (WhatsApp: `955 273 229`).
+  </Tab>
+  <Tab title="Plin">
+    **Mobile wallet — Plin.** Selecting Plin shows the same payment box as Yape but with different labels:
+
+    - A **💜 PLIN** pill badge
+    - The same QR image (shared with Yape)
+    - The same phone number: **+51 947 999 736**
+    - Instruction text: *Transfiere por Plin al número de arriba*
+  </Tab>
+  <Tab title="Transferencia">
+    **Bank transfer.** Selecting Transferencia shows the payment box with:
+
+    - A **🏦 TRANSFERENCIA** pill badge
+    - The QR image for scanning
+    - The same phone number: **+51 947 999 736**
+    - Instruction text: *Realiza la transferencia al número o cuenta indicada*
+  </Tab>
+</Tabs>
+
+## Payment method in the WhatsApp message
+
+The selected payment method is always included in the order message sent to the business:
+
+```
+💳 *PAGO: Yape*
+```
+
+For cash orders, additional lines show the customer's payment amount and expected change. For digital payments, no extra lines are added — the business knows to look for an incoming Yape/Plin transfer or bank credit.
+
+## Payment method in the order summary
+
+The payment method is stored in the Firestore `pedidos` document:
+
+```javascript
+{
+  pago:     "Yape",      // Efectivo | Yape | Plin | Transferencia
+  pago_con: 50.00,       // only for Efectivo
+  vuelto:   17.30        // only for Efectivo
+}
+```
+
+It also appears in the [nota de venta](/features/ordering#nota-de-venta-sale-note) under the **Pago** row in the customer data section.
+
+## Voucher verification
+
+For digital payments (Yape, Plin, Transferencia), customers can upload a photo of their payment confirmation as proof. The voucher upload area (`.vbox`) becomes visible when one of these methods is selected.
+
+<Note>
+  Voucher upload is optional. Customers can submit their order without uploading proof — the business team verifies payment through the WhatsApp conversation.
+</Note>
+
+The voucher image is uploaded to Firebase Storage and its URL is saved in the Firestore order document. This provides a paper trail the business can review without requiring back-and-forth in the WhatsApp chat.
+
+## Yape number in the nota de venta
+
+The business WhatsApp and Yape contact numbers appear in the nota de venta footer:
+
+```
+WhatsApp: 955 273 229 / 986 445 531
+```
+
+This allows the customer to reference payment details directly from the receipt after the order is complete.
+
+## Payment UI logic
+
+The payment grid and payment detail boxes are controlled by `setPago()`:
+
+```javascript
+function setPago(m) {
+  ST.pago = m;
+  document.querySelectorAll('.popt').forEach(e => e.classList.remove('on'));
+  document.getElementById('pay-' + m).classList.add('on');
+
+  const esDigital = m === 'Yape' || m === 'Plin' || m === 'Transferencia';
+  document.getElementById('yapeBox').classList.toggle('on', esDigital);
+  document.getElementById('vueltoBox').style.display =
+    m === 'Efectivo' ? 'block' : 'none';
+
+  if (esDigital) {
+    // Update the label and instruction text to match the selected method
+    const tags   = { Yape: '📱 YAPE', Plin: '💜 PLIN', Transferencia: '🏦 TRANSFERENCIA' };
+    const textos = {
+      Yape:          'Escanea el QR o transfiere al número de arriba',
+      Plin:          'Transfiere por Plin al número de arriba',
+      Transferencia: 'Realiza la transferencia al número o cuenta indicada'
+    };
+    document.getElementById('yboxTag').textContent = tags[m];
+    document.getElementById('yboxTxt').textContent = textos[m];
+  }
+}
+```
+
+<AccordionGroup>
+  <Accordion title="Why does Plin share the same QR as Yape?">
+    Yape and Plin both support QR-based transfers to the same Peruvian phone number. The business uses a single QR image that works for either app. The label and instruction text update to clarify which app the customer should use, but the payment destination is identical.
+  </Accordion>
+  <Accordion title="What happens if the customer doesn't upload a voucher?">
+    The order is still submitted normally. The `vuelto` and `pago_con` fields are only populated for cash orders. For digital methods, the business confirms payment through the WhatsApp conversation before dispatching the delivery.
+  </Accordion>
+  <Accordion title="Can the business add more payment methods?">
+    Yes. The payment grid uses CSS `grid-template-columns: repeat(4, 1fr)`. Adding a fifth option requires updating both the HTML grid and the `setPago()` logic. The `esDigital` condition should be extended to include any new wallet methods that should show the QR box.
+  </Accordion>
+</AccordionGroup>

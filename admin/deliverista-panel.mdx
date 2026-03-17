@@ -1,0 +1,187 @@
+---
+title: "Deliverista Panel"
+description: "PIN-protected panel for delivery drivers to search orders and confirm delivery in Firestore."
+---
+
+The deliverista panel is a built-in tool embedded in the ASWA ordering app that lets delivery drivers (deliveristas) authenticate with a PIN and confirm order delivery without needing a separate app or admin account. It is designed to be discreet — visible only to staff who know where to find it.
+
+<CardGroup cols={2}>
+  <Card title="Who uses it" icon="person-biking">
+    Delivery drivers employed by La Rica Chicha. They use it on their own phone after arriving at the customer's address.
+  </Card>
+  <Card title="What it does" icon="circle-check">
+    Marks a Firestore order document as delivered by setting `confirmacion_deliverista: true` and `estado: 'entregado_por_deliverista'`.
+  </Card>
+  <Card title="Three steps" icon="list-ol">
+    PIN entry → order search by customer phone → confirm delivery. The customer then verifies receipt on their own device.
+  </Card>
+  <Card title="No separate login" icon="lock">
+    Security is provided by a shared 4-digit PIN known only to the business and its drivers. No Firebase account is required.
+  </Card>
+</CardGroup>
+
+## Accessing the panel
+
+The entry point is a small floating button (`#btnDeliverista`) fixed to the **bottom-left corner** of the app at `bottom: 90px; left: 16px`. It reads **"🏍️ Soy deliverista"** and is intentionally styled at `opacity: 0.6` so it blends into the background for regular customers.
+
+Hovering or tapping the button raises the opacity and highlights it in yellow. Tapping it opens the deliverista modal.
+
+```html
+<!-- ugc.html / index.html -->
+<button id="btnDeliverista" onclick="abrirPanelDeliverista()">
+  🏍️ Soy deliverista
+</button>
+```
+
+```css
+#btnDeliverista {
+  position: fixed;
+  bottom: 90px;
+  left: 16px;
+  z-index: 1200;
+  opacity: 0.6;
+}
+#btnDeliverista:hover {
+  opacity: 1;
+  border-color: var(--y);
+  color: var(--y);
+}
+```
+
+<Note>
+  The button sits above the bottom navigation bar (`height: 68px`) and below any floating order-summary bar (`bottom: 68px`). On devices with a home indicator the positioning may shift slightly.
+</Note>
+
+## PIN authentication
+
+The panel opens at **Step 1** every time. The deliverista must enter the correct 4-digit PIN before proceeding.
+
+### How it works
+
+- A row of **4 dots** provides visual feedback. Each dot turns yellow (`var(--y): #facc15`) as a digit is pressed.
+- The keypad is a 3-column grid: digits 1–9 in rows, then backspace (`⌫`), `0`, and a close (`✕`) button in the last row.
+- After the 4th digit is entered, the app waits 200 ms and automatically calls `verificarPin()`.
+- If the PIN matches `DELIVERY_PIN`, Step 2 activates and a toast reads **"🔓 PIN correcto — busca el pedido"**.
+- If the PIN is wrong, the dot display **shakes** (CSS `shake` keyframe animation), haptic feedback fires (`navigator.vibrate([80, 40, 80])`), an error message appears, and the input clears.
+
+```javascript
+// ugc.html — line 46
+const DELIVERY_PIN = "8521";
+
+function verificarPin() {
+  if (dlvPinActual === DELIVERY_PIN) {
+    // proceed to step 2
+  } else {
+    // shake, clear, show error
+  }
+}
+```
+
+<Warning>
+  The PIN is stored as a plain-text constant in the client-side HTML. Anyone who views the page source can read it. **Change the default PIN (`8521`) before deploying to production.** See [Changing the PIN](#changing-the-pin) below.
+</Warning>
+
+## Step-by-step walkthrough
+
+<Steps>
+  <Step title="Open the panel">
+    Tap the **"🏍️ Soy deliverista"** button in the bottom-left corner of the app. The deliverista modal slides in from the center of the screen.
+  </Step>
+  <Step title="Enter the PIN">
+    Tap digits on the 3×4 keypad. Watch the four dots fill yellow as each digit is entered. After the 4th digit the system verifies automatically — no confirm button needed.
+
+    - **Correct PIN** → advances to Step 2
+    - **Wrong PIN** → dots shake, input clears, try again
+  </Step>
+  <Step title="Search for the order">
+    Type the customer's 9-digit Peruvian mobile number (starting with `9`). The app queries Firestore after a 700 ms debounce.
+
+    The query finds orders in the `pedidos` collection where `businessId == BUSINESS_ID` and `telefono == [entered number]`, filtering out any already marked as `entregado`.
+
+    If multiple orders exist the most recent one (by `fecha`) is shown.
+  </Step>
+  <Step title="Review order details">
+    A card displays:
+    - **Cliente** — customer full name
+    - **Dirección** — delivery address
+    - **Pedido** — item summary (e.g. `2× 2L, 1× 3L`)
+    - **Total** — amount in soles (yellow text)
+    - **Pago** — payment method
+    - **Estado** — current order status (green text)
+
+    If the order was already confirmed by this driver, a warning banner appears and the confirm button is disabled.
+  </Step>
+  <Step title="Confirm delivery">
+    Tap **"✅ CONFIRMAR QUE ENTREGUÉ"**. The app writes to Firestore:
+
+    ```javascript
+    await updateDoc(doc(db, 'pedidos', pedidoId), {
+      confirmacion_deliverista: true,
+      deliverista_at:           serverTimestamp(),
+      estado:                   'entregado_por_deliverista'
+    });
+    ```
+
+    After the write succeeds, the panel advances to **Step 3** — a green success screen.
+  </Step>
+  <Step title="Close the panel">
+    The success screen shows a waiting banner explaining that the delivery is now registered and the customer must confirm receipt on their device before a Nota de Venta is generated. Tap **"🏍️ Listo — Cerrar panel"** to dismiss.
+  </Step>
+</Steps>
+
+## What happens in Firestore
+
+When the deliverista confirms delivery, two fields are written to the order document in the `pedidos` collection:
+
+| Field | Value | Description |
+|---|---|---|
+| `confirmacion_deliverista` | `true` | Flags the order as physically delivered |
+| `deliverista_at` | `serverTimestamp()` | Timestamp of driver confirmation |
+| `estado` | `"entregado_por_deliverista"` | Intermediate status before customer confirms |
+
+After the customer taps **"✅ SÍ, YA RECIBÍ MI PEDIDO"** on their end, the order status advances to `"confirmado"` (the final state) and the Nota de Venta is generated.
+
+<Note>
+  The full order status lifecycle is documented in [Order Management](/admin/order-management).
+</Note>
+
+## Changing the PIN
+
+The PIN is defined as a JavaScript constant at the top of both `index.html` and `ugc.html`:
+
+```javascript
+// index.html — line 65 equivalent
+// ugc.html — line 46
+const DELIVERY_PIN = "8521"; // ← change this
+```
+
+<Steps>
+  <Step title="Open the source file">
+    Edit `index.html` (main ordering page) and `ugc.html` (UGC/gallery page). Both files contain their own copy of `DELIVERY_PIN`.
+  </Step>
+  <Step title="Replace the value">
+    Change `"8521"` to your desired 4-digit code. Use a non-obvious PIN — avoid sequences like `1234` or `0000`.
+
+    ```javascript
+    const DELIVERY_PIN = "7349"; // example — use your own
+    ```
+  </Step>
+  <Step title="Communicate the new PIN">
+    Tell your deliveristas the new PIN before deploying the updated files. The PIN is not stored anywhere else — if forgotten, inspect the source file.
+  </Step>
+  <Step title="Deploy">
+    Push the updated HTML files to your hosting environment (e.g. GitHub Pages at `jsangama.github.io/aswa`).
+  </Step>
+</Steps>
+
+<Warning>
+  The PIN is client-side only and visible in page source. It is a convenience control, not a cryptographic secret. Do not use this PIN to protect sensitive business data — use Firebase Security Rules for that.
+</Warning>
+
+## Security considerations
+
+- The PIN lives in the browser's JavaScript source. Anyone who opens DevTools can read it. It is intended to prevent accidental use by customers, not to block a determined attacker.
+- There is no rate-limiting on PIN attempts — a script could brute-force all 10,000 possible 4-digit codes.
+- For a stronger control, consider moving PIN verification to a Firebase Cloud Function or using Firebase App Check.
+- All actual data protection is handled by **Firestore Security Rules** — see [Firestore Structure](/admin/firestore-structure) for details.
+- The Firebase API key in the source is public by design (see Google's official guidance). Restrict it to your domain in Google Cloud Console: **APIs & Services → Credentials → Browser key → Application restrictions → HTTP referrers → `jsangama.github.io/*`**.

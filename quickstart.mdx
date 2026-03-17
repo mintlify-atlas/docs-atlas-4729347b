@@ -1,80 +1,255 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Go from zero to a working local instance of ASWA with your first test order in under 15 minutes."
 ---
 
-## Get started in three steps
+ASWA is a no-build, single-file web app. There is no npm install, no bundler, and no server required. The entire frontend lives in `index.html` and talks directly to Firebase from the browser.
 
-Get your documentation site running locally and make your first customization.
+<Steps>
 
-### Step 1: Set up your local environment
+<Step title="Prerequisites">
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Before you start, make sure you have:
 
-### Step 2: Deploy your changes
+- A **Firebase account** — [console.firebase.google.com](https://console.firebase.google.com)
+- A **GitHub account** (for cloning and, optionally, deploying to GitHub Pages)
+- A text editor — VS Code, Sublime Text, or anything that can edit HTML
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+No Node.js, no package manager, and no build step are required.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+</Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+<Step title="Clone the repository">
 
-### Step 3: Go live
+```bash
+git clone https://github.com/jsangama/aswa.git
+cd aswa
+```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+The project structure you'll work with:
+
+```
+aswa/
+├── index.html          # The entire application
+├── js/
+│   ├── app.js
+│   └── config.js
+├── assets/
+└── images/
+```
+
+<Note>
+`index.html` is self-contained. The Firebase SDK is loaded via CDN using ES module imports — no local install needed.
+</Note>
+
+</Step>
+
+<Step title="Create a Firebase project">
+
+1. Go to [console.firebase.google.com](https://console.firebase.google.com) and click **Add project**.
+2. Give it a name (e.g., `pedidos-mi-negocio`) and click through the setup wizard.
+3. Once the project is created, click **Continue**.
+
+</Step>
+
+<Step title="Enable Firestore">
+
+1. In your Firebase project, go to **Build → Firestore Database**.
+2. Click **Create database**.
+3. Choose **Start in test mode** (you can tighten rules later).
+4. Select the region closest to your users (e.g., `us-central` for the Americas) and click **Enable**.
+
+<Warning>
+Test mode allows open read/write access for 30 days. Before going live, configure Firestore Security Rules to restrict access appropriately.
+</Warning>
+
+</Step>
+
+<Step title="Enable Anonymous Authentication">
+
+ASWA signs users in anonymously so the app can write orders to Firestore without requiring a login screen.
+
+1. In your Firebase project, go to **Build → Authentication**.
+2. Click **Get started**, then select the **Sign-in method** tab.
+3. Click **Anonymous** and toggle it **Enabled**.
+4. Click **Save**.
+
+</Step>
+
+<Step title="Add a web app and get your Firebase config">
+
+1. In your Firebase project overview, click the **`</>`** (Web) icon to add a web app.
+2. Give it a nickname (e.g., `aswa-web`) — you don't need Firebase Hosting.
+3. Click **Register app**.
+4. Firebase will display your config object. Copy it — you'll need it in the next step.
+
+Your config will look similar to this (the values below are from the live La Rica Chicha instance):
+
+```javascript
+const cfg = {
+  apiKey:            "AIzaSyAsAIZEEuE4Ha3xCFgfn8hBTictVi4CTIk",
+  authDomain:        "pedidos-aswa-peru.firebaseapp.com",
+  projectId:         "pedidos-aswa-peru",
+  storageBucket:     "pedidos-aswa-peru.appspot.com",
+  messagingSenderId: "213964983594",
+  appId:             "1:213964983594:web:92d761a6e0cce9ddaa253"
+};
+```
+
+<Note>
+Firebase Web API keys are **public by design** — they identify your project, not authenticate you. Real security comes from Firestore Security Rules, not from hiding this key. See the comment block in `index.html` lines 11–27 for a full explanation and instructions on restricting the key to your domain in Google Cloud Console.
+</Note>
+
+</Step>
+
+<Step title="Replace the Firebase config in index.html">
+
+Open `index.html` and find the `cfg` object near line 38. Replace it with the values from your own Firebase project:
+
+```javascript
+// index.html — around line 38
+const cfg = {
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+```
+
+</Step>
+
+<Step title="Set the BUSINESS_ID">
+
+Just below the Firebase config block (around line 65), you'll find the multi-tenant identifier:
+
+```javascript
+const BUSINESS_ID = "aswa001";
+```
+
+For local development or your own deployment, you can leave this as `aswa001`. If you're running multiple businesses on the same Firebase project, change this to a unique slug for each tenant (e.g., `"michicha001"`).
+
+<Tip>
+The `BUSINESS_ID` is used to look up the `negocios/{BUSINESS_ID}` document in Firestore, which sets the business name and WhatsApp numbers displayed in the app. The multi-business architecture is described further in the [multi-business setup](/customization/multi-business) page.
+</Tip>
+
+</Step>
+
+<Step title="Set the WhatsApp numbers">
+
+Near line 91, the default WhatsApp delivery numbers are hardcoded as fallbacks:
+
+```javascript
+// Números WhatsApp por defecto (se sobreescriben si existen en Firestore)
+window.WA1 = "51955273229";
+window.WA2 = "51986445531";
+```
+
+Replace these with your own WhatsApp numbers in international format without `+` (country code followed by number). For example, a US number `+1 212 555 1234` becomes `"12125551234"`.
+
+These values are overridden at runtime by `whatsapp1` and `whatsapp2` from the `negocios/aswa001` Firestore document. Edit them here only if you want different hardcoded fallback defaults.
+
+</Step>
+
+<Step title="Create the initial Firestore document">
+
+The app fetches business configuration from Firestore at startup. Create the document for your business ID before opening the app.
+
+1. In the Firebase Console, go to **Firestore Database**.
+2. Click **+ Start collection**, enter the collection ID: `negocios`.
+3. Set the document ID to match your `BUSINESS_ID` (e.g., `aswa001`).
+4. Add the following fields:
+
+```json
+{
+  "nombre":     "La Rica Chicha",
+  "whatsapp1":  "51955273229",
+  "whatsapp2":  "51986445531"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `nombre` | string | Business name shown in the app header |
+| `whatsapp1` | string | Primary WhatsApp number (international format, no `+`) |
+| `whatsapp2` | string | Secondary WhatsApp number (fallback for order routing) |
+
+<Tip>
+You can also add a `social` map to this document later to populate the "Encuéntranos" (Find Us) section with links to Facebook, Instagram, TikTok, and Google Maps.
+</Tip>
+
+</Step>
+
+<Step title="Open the app in your browser">
+
+No server required — just open the file directly:
+
+```bash
+# macOS
+open index.html
+
+# Linux
+xdg-open index.html
+
+# Windows
+start index.html
+```
+
+Or drag `index.html` into any browser window. The app loads, connects to Firebase, signs in anonymously, and fetches your business config from Firestore.
+
+<Note>
+Some browsers restrict the Geolocation API on `file://` URLs. If you need the real-time GPS delivery button to work, serve the file over HTTP instead:
+
+```bash
+# Python 3
+python3 -m http.server 8080
+# Then open: http://localhost:8080
+```
+</Note>
+
+</Step>
+
+<Step title="Place your first test order">
+
+With the app running in your browser:
+
+1. **Choose a product** — tap `+` next to any presentation:
+   - Chicha ASWA 2 Litros — S/ 9.00
+   - Chicha ASWA 3 Litros — S/ 13.00
+   - Chicha ASWA Familiar 4 Litros — S/ 15.00
+
+2. **Fill in your details**:
+   - Phone number (9 digits, Peruvian format)
+   - Full name
+   - Delivery address
+   - Zone — **Morales** (S/ 3.00), **Tarapoto** (S/ 4.00), **Banda de Shilcayo** (S/ 5.00), or **Recojo en local** (free pickup)
+
+3. **Select a payment method** — Efectivo, Yape, Plin, or Transferencia.
+
+4. **Tap "Continuar"** — the order summary sheet slides up showing the itemized total including delivery.
+
+5. **Tap "Enviar por WhatsApp"** — this opens WhatsApp with a pre-filled order message routed to `WA1`. The order is simultaneously written to Firestore under the `pedidos` collection with status `"pendiente"`.
+
+After submitting, open your Firestore console. You should see a new document in the `pedidos` collection with the order details, customer info, zone, payment method, and a server timestamp.
+
+</Step>
+
+</Steps>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Firestore structure" href="/admin/firestore-structure">
+    Explore the full schema for orders, clients, loyalty levels, and UGC submissions.
+  </Card>
+  <Card title="Loyalty system" href="/features/loyalty">
+    How referral codes, discount tiers (Bronce, Plata, Oro, Diamante), and expiration alerts work.
+  </Card>
+  <Card title="Multi-business setup" href="/customization/multi-business">
+    Understand how BUSINESS_ID and Firestore power the multi-tenant architecture.
+  </Card>
+  <Card title="Deploy to GitHub Pages" href="/deployment/github-pages">
+    Publish your instance publicly — no server, no cost.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

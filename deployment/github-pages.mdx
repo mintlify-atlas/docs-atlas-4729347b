@@ -1,0 +1,223 @@
+---
+title: "GitHub Pages deployment"
+description: "Deploy ASWA to GitHub Pages with no build step — push your HTML, CSS, and JS files and the site is live in minutes."
+---
+
+ASWA is a pure HTML/CSS/JavaScript application with no bundler, no npm, and no build step. Deploying it means pushing files to a GitHub repository and enabling GitHub Pages — nothing more.
+
+---
+
+## How it works
+
+- GitHub Pages serves static files directly from your repository's `main` branch.
+- Firebase (Firestore, Auth, Storage) handles all backend logic via CDN-imported SDK.
+- No server, no Node.js runtime, and no CI pipeline are required.
+
+---
+
+## Deployment steps
+
+<Steps>
+
+<Step title="Fork or clone the repository">
+To start with your own copy of the codebase:
+
+```bash
+git clone https://github.com/jsangama/aswa.git
+cd aswa
+```
+
+Alternatively, click **Fork** on the GitHub repository page. Forking is recommended if you plan to keep up with upstream changes.
+
+<Tip>
+For a production deployment, consider making your repository **private** after forking. The delivery PIN (`DELIVERY_PIN`) is hardcoded in `index.html`. A public repository exposes it to anyone who reads the source.
+</Tip>
+</Step>
+
+<Step title="Apply your configuration changes">
+Before pushing, update the following values in `index.html`:
+
+**Firebase config** — replace the `cfg` object with your own project credentials (see [Firebase setup](/deployment/firebase-setup)):
+
+```javascript
+const cfg = {
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+```
+
+**Business ID** — set this to match the document ID you created in Firestore:
+
+```javascript
+const BUSINESS_ID = "aswa001";
+```
+
+**Delivery PIN** — change this to a secure value your delivery team will use:
+
+```javascript
+const DELIVERY_PIN = "YOUR_SECURE_PIN";
+```
+
+**WhatsApp numbers** — update the default fallback numbers if they differ from your business:
+
+```javascript
+window.WA1 = "51955273229";
+window.WA2 = "51986445531";
+```
+
+Apply the same Firebase config changes to `ugc.html` if it contains a separate config block.
+</Step>
+
+<Step title="Commit and push to your repository">
+```bash
+git add .
+git commit -m "Configure for production deployment"
+git push origin main
+```
+
+If you forked the repo, push to your fork's remote. If you cloned and want to push to a new repository, create a new repo on GitHub first, then:
+
+```bash
+git remote set-url origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
+git push -u origin main
+```
+</Step>
+
+<Step title="Enable GitHub Pages">
+1. Go to your repository on GitHub.
+2. Click **Settings → Pages** in the left sidebar.
+3. Under **Source**, select **Deploy from a branch**.
+4. Set **Branch** to `main` and the folder to `/ (root)`.
+5. Click **Save**.
+
+GitHub will begin deploying. After 1–3 minutes, your site will be live at:
+
+```
+https://{username}.github.io/{repo-name}/
+```
+
+GitHub shows the live URL at the top of the **Settings → Pages** screen once deployment completes.
+</Step>
+
+<Step title="Add your GitHub Pages URL as an authorized domain in Firebase">
+Firebase blocks authentication requests from domains it doesn't recognize.
+
+1. Open the [Firebase Console](https://console.firebase.google.com) and select your project.
+2. Go to **Authentication → Settings → Authorized domains**.
+3. Click **Add domain** and enter your GitHub Pages host:
+
+```
+{username}.github.io
+```
+
+Note: enter just the host, without a path or trailing slash.
+</Step>
+
+<Step title="Restrict the Firebase API key to your GitHub Pages domain">
+1. Open [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials).
+2. Click the **Browser key** associated with your Firebase project.
+3. Under **Application restrictions**, select **HTTP referrers (websites)**.
+4. Add the following referrer:
+
+```
+{username}.github.io/*
+```
+
+5. Click **Save**.
+
+This ensures your API key cannot be used from any other origin.
+</Step>
+
+<Step title="Test your deployment with a real order flow">
+Open your live URL and verify the following end-to-end:
+
+1. The product catalog loads (2L, 3L, 4L sizes visible).
+2. Adding items to the cart updates the floating total bar.
+3. Filling in the order form and tapping **Continuar** opens the order summary sheet.
+4. The WhatsApp button generates a correctly formatted message and redirects to `wa.me`.
+5. After confirming an order, a new document appears in your Firestore `pedidos` collection.
+6. The deliverista panel opens with the PIN prompt when you tap the delivery icon.
+</Step>
+
+</Steps>
+
+---
+
+## Updating the site
+
+GitHub Pages redeploys automatically every time you push to `main`. There is no manual deploy step.
+
+```bash
+# Make your changes, then:
+git add .
+git commit -m "Update product prices"
+git push origin main
+```
+
+The updated site is typically live within 1–2 minutes.
+
+---
+
+## Custom domain setup
+
+To serve ASWA from your own domain (e.g., `pedidos.laricachicha.com`):
+
+<Steps>
+
+<Step title="Add your custom domain in GitHub Pages settings">
+1. Go to **Settings → Pages** in your repository.
+2. Under **Custom domain**, enter your domain (e.g., `pedidos.laricachicha.com`).
+3. Click **Save**. GitHub will display the DNS records you need to configure.
+</Step>
+
+<Step title="Update your DNS records">
+At your domain registrar, create a `CNAME` record pointing your subdomain to GitHub Pages:
+
+```
+Type:  CNAME
+Name:  pedidos
+Value: {username}.github.io
+```
+
+DNS propagation can take up to 48 hours, but typically completes within minutes.
+</Step>
+
+<Step title="Enable HTTPS">
+Once DNS propagates, return to **Settings → Pages** and check **Enforce HTTPS**. GitHub Pages provisions a Let's Encrypt certificate automatically.
+</Step>
+
+<Step title="Update Firebase authorized domains and API key restrictions">
+Add your custom domain to:
+
+1. **Firebase Console → Authentication → Settings → Authorized domains** — add `pedidos.laricachicha.com`.
+2. **Google Cloud Console → APIs & Services → Credentials → Browser key** — add `pedidos.laricachicha.com/*` as an HTTP referrer.
+</Step>
+
+</Steps>
+
+---
+
+## Architecture notes
+
+| Concern | How ASWA handles it |
+|---------|---------------------|
+| Hosting | GitHub Pages (static files, no server) |
+| Database | Firestore (NoSQL, real-time) |
+| Authentication | Firebase Anonymous Auth (automatic, no login screen) |
+| File uploads | Firebase Storage (UGC photos) |
+| WhatsApp integration | Client-side `wa.me` deep links |
+| Build step | None — push HTML/CSS/JS directly |
+| Offline capability | Firestore SDK caches recent reads; no separate service worker required |
+
+The app runs entirely in the browser. Firebase provides all backend services over HTTPS. There is no server to provision, patch, or scale.
+
+---
+
+## Next steps
+
+- Review [Firebase setup](/deployment/firebase-setup) to ensure Firestore Security Rules and authorized domains are correctly configured.
+- Set up the `negocios/aswa001` document in Firestore to populate business name, WhatsApp numbers, and address dynamically.

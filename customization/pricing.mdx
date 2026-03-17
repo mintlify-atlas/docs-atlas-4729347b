@@ -1,0 +1,219 @@
+---
+title: "Pricing"
+description: "Where product prices live in the HTML, how delivery fees are configured per district, and how the loyalty and referral discount systems work."
+---
+
+## Product prices
+
+Prices are defined in the HTML as static text inside `.pp` elements, one per product SKU. These values are read at checkout by the JavaScript cart logic:
+
+```html
+<!-- index.html and ugc.html — product cards section -->
+<div class="pp" id="pr-p2l">S/ 9.00</div>   <!-- 2-litre jug -->
+<div class="pp" id="pr-p3l">S/ 13.00</div>  <!-- 3-litre jug -->
+<div class="pp" id="pr-p4l">S/ 15.00</div>  <!-- 4-litre familiar -->
+```
+
+### Current prices
+
+| SKU | Product | Price |
+|---|---|---|
+| `p2l` | Chicha ASWA — 2 Litros | S/ 9.00 |
+| `p3l` | Chicha ASWA — 3 Litros | S/ 13.00 |
+| `p4l` | Chicha ASWA Familiar — 4 Litros | S/ 15.00 |
+
+The `.pp` class renders prices in **Bebas Neue** at 28px in the primary accent color (`--y`). When a discount is active, the pre-discount total is shown with a strikethrough in `.pold`, and the discounted total is shown in `.pbig` in the floating order bar.
+
+### Updating prices
+
+<Tabs>
+  <Tab title="Edit HTML directly">
+    Change the text content of each `.pp` element in `index.html` and `ugc.html`, and update the matching hardcoded numeric values in the `abrirResumen()` and `enviarPedido()` JavaScript functions:
+
+    ```javascript
+    // index.html — abrirResumen() function, line ~2290
+    if (ST.cart.p2l) row(ST.cart.p2l + '× ASWA 2L',          'S/ ' + (ST.cart.p2l * 9).toFixed(2));
+    if (ST.cart.p3l) row(ST.cart.p3l + '× ASWA 3L',          'S/ ' + (ST.cart.p3l * 13).toFixed(2));
+    if (ST.cart.p4l) row(ST.cart.p4l + '× ASWA 4L Familiar', 'S/ ' + (ST.cart.p4l * 15).toFixed(2));
+    ```
+
+    The price constants `9`, `13`, and `15` appear in multiple places — search for each value and update them all consistently.
+
+    <Warning>
+    Prices are hardcoded in at least three locations: the `.pp` display elements, the `abrirResumen()` order summary builder, and the WhatsApp message formatter in `enviarPedido()`. Update all three or the order summary and the WhatsApp message will show incorrect totals.
+    </Warning>
+  </Tab>
+  <Tab title="Load from Firestore (future pattern)">
+    The architecture supports loading prices dynamically from Firestore as an extension to `cargarNegocio()`. After `window.NEGOCIO` is populated, read price fields and update the DOM:
+
+    ```javascript
+    async function cargarNegocio() {
+      // ... existing logic ...
+      if (snap.exists()) {
+        const data = snap.data();
+        // Dynamic pricing
+        if (data.precio_2l) document.getElementById('pr-p2l').textContent = 'S/ ' + data.precio_2l.toFixed(2);
+        if (data.precio_3l) document.getElementById('pr-p3l').textContent = 'S/ ' + data.precio_3l.toFixed(2);
+        if (data.precio_4l) document.getElementById('pr-p4l').textContent = 'S/ ' + data.precio_4l.toFixed(2);
+        window.PRECIOS = {
+          p2l: data.precio_2l || 9,
+          p3l: data.precio_3l || 13,
+          p4l: data.precio_4l || 15
+        };
+      }
+    }
+    ```
+
+    Then replace the hardcoded numeric constants in `abrirResumen()` and `enviarPedido()` with reads from `window.PRECIOS`.
+  </Tab>
+</Tabs>
+
+## Delivery fee configuration
+
+Delivery fees are configured as `<option>` values on the zone selector in the order form. The `value` attribute is the fee amount in soles; the display text is the district name:
+
+```html
+<!-- index.html — delivery zone selector -->
+<select id="zona" class="inp" onchange="calcTotal()">
+  <option value="">Selecciona tu zona</option>
+  <option value="3">Morales — S/ 3.00</option>
+  <option value="4">Tarapoto — S/ 4.00</option>
+  <option value="5">Banda de Shilcayo — S/ 5.00</option>
+  <option value="0">Recojo en local — Gratis</option>
+  <option value="10">A nivel nacional — S/ 10.00</option>
+</select>
+```
+
+To add, remove, or adjust a delivery zone, edit the `<option>` elements. The `value` is parsed as a number by `calcTotal()` and added directly to the order total.
+
+<Note>
+The zone text (e.g. "Morales — S/ 3.00") appears verbatim in the WhatsApp order message sent by `enviarPedido()`. Keep the format consistent so delivery staff can read it clearly.
+</Note>
+
+## Loyalty tier discounts
+
+When a customer enters their phone number, ASWA looks up their record in the `clientes` Firestore collection. The `pedidos_totales` field determines their tier and the corresponding loyalty discount:
+
+```javascript
+// index.html — buscarCliente() — tier calculation
+const p = data.pedidos_totales || 0;
+let nivel = 'BRONCE', fid = 0;
+if      (p >= 20) { nivel = 'DIAMANTE'; fid = 20; }
+else if (p >= 10) { nivel = 'ORO';      fid = 15; }
+else if (p >= 5)  { nivel = 'PLATA';    fid = 10; }
+// BRONCE (0–4 orders): fid stays 0
+```
+
+| Tier | Orders required | Loyalty discount |
+|---|---|---|
+| Bronce | 0 – 4 | 0% |
+| Plata | 5 – 9 | 10% |
+| Oro | 10 – 19 | 15% |
+| Diamante | 20+ | 20% |
+
+The discount is stored in `ST.disc.fid` and applied in the checkout modal. When a loyalty discount is active, the `.dban` element (discount banner) becomes visible in the order summary:
+
+```javascript
+// index.html — abrirResumen()
+const disc = Math.min(50, ST.disc.fid + ST.disc.bon + ST.disc.ref);
+if (disc > 0) {
+  db2.textContent = '🎉 Descuento ' + disc + '% (' + pts.join(' + ') + ') aplicado';
+  db2.classList.add('on');  // shows the .dban green banner
+}
+```
+
+The total discount is capped at **50%** regardless of how many discount types are stacked.
+
+## Referral discount
+
+Customers can enter a referral code in the order form. ASWA validates it in real time against the `clientes` collection:
+
+```javascript
+// index.html — referral code validation
+const snap = await gd(q(col(db,'clientes'),
+  wh('businessId', '==', BUSINESS_ID),
+  wh('codigo_referido', '==', cod)
+));
+if (!snap.empty && snap.docs[0].id !== ST.cli.id) {
+  // Valid code — apply 5% referral discount
+  ST.disc.ref = 5;
+}
+```
+
+- A valid referral code applies a **5% discount** to the new customer's order (`ST.disc.ref = 5`).
+- When the order is confirmed, the referrer also receives a 5% bono added to their `bonos_activos` array in Firestore.
+- A customer cannot use their own referral code (the validator checks `snap.docs[0].id !== ST.cli.id`).
+
+Referral codes are generated in the format `ASWA-XXXXXXXX` (business prefix + random alphanumeric string) and stored in the `codigo_referido` field on the customer document.
+
+## Bonus discounts (UGC and content)
+
+Customers who submit content through the UGC page (`ugc.html`) can earn bonus discounts. The bonus system works through the `bonos_activos` array on the customer's Firestore document:
+
+```javascript
+// Bonus accumulation from bonos_activos array
+const bonos = (data.bonos_activos || []).filter(
+  b => !b.expira || new Date(b.expira) > now
+);
+// Total bonus discount, capped at 30%
+ST.disc.bon = Math.min(30, bonos.reduce((a, b) => a + b.valor, 0));
+```
+
+### UGC bonus values
+
+From the UGC page header pills:
+
+| Content type | Bonus |
+|---|---|
+| Photo (foto) | +2% |
+| Video | +4% |
+| Reels / Story | +2% |
+
+Bonus discounts from multiple submissions stack up to a **maximum of 30%**.
+
+## Benefit expiry
+
+Every entry in the `bonos_activos` array can carry an optional `expira` field (ISO 8601 date string). Expired bonuses are filtered out before calculating `ST.disc.bon`:
+
+```javascript
+const bonos = (data.bonos_activos || []).filter(
+  b => !b.expira || new Date(b.expira) > now
+);
+```
+
+Bonuses **without** an `expira` field never expire.
+
+When a bonus is within 3 days of expiry, a warning tag appears in the customer loyalty banner:
+
+```javascript
+const dias = Math.ceil((new Date(b.expira) - now) / 86400000);
+const txt  = dias === 0 ? 'hoy' : dias === 1 ? 'mañana' : `en ${dias} días`;
+tags.push(`<span class="cban-tag warn">⚠️ Bono ${b.valor}% vence ${txt}</span>`);
+```
+
+To manually set or extend a bonus expiry, update the `vencimientoDescuento` field on the customer's document in Firestore. The application reads `b.expira` from each object in `bonos_activos` — structure a bonus entry as:
+
+```json
+{
+  "tipo": "ugc",
+  "valor": 4,
+  "expira": "2026-04-30"
+}
+```
+
+## Discount stacking
+
+All three discount types combine additively, capped at 50%:
+
+```javascript
+const disc = Math.min(50, ST.disc.fid + ST.disc.bon + ST.disc.ref);
+```
+
+| Discount type | Source | Maximum |
+|---|---|---|
+| Loyalty (`fid`) | `pedidos_totales` tier | 20% (Diamante) |
+| Bonus (`bon`) | `bonos_activos` array | 30% (capped) |
+| Referral (`ref`) | Valid `codigo_referido` entry | 5% |
+| **Combined total** | All three | **50%** |
+
+The breakdown is shown to the customer in the checkout modal's `.dban` banner and recorded on the Firestore order document in the `descuento_pct` and `descuento_amt` fields.

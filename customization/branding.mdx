@@ -1,0 +1,202 @@
+---
+title: "Branding"
+description: "Customize ASWA's visual identity: business name, tagline, logo, color palette, typography, and sale note branding."
+---
+
+All visual branding in ASWA is controlled through three layers: the HTML header markup, a set of CSS custom properties in `:root`, and two Google Fonts families. Changes to these propagate consistently across the ordering app (`index.html`), the UGC page (`ugc.html`), and the sale note (nota de venta) modal.
+
+## Business name and tagline
+
+The header renders two text elements that identify the business:
+
+```html
+<!-- index.html and ugc.html — header section -->
+<div class="bname">La Rica Chicha</div>
+<div class="bsub">ASWA · El oro líquido de la selva</div>
+```
+
+| Element | Class | Purpose |
+|---|---|---|
+| Business name | `.bname` | Displayed in Bebas Neue, 26px, primary accent color (`--y`) |
+| Tagline | `.bsub` | Displayed in Poppins, 9px, muted (`--mut`), uppercase |
+
+The `.bname` text is **overwritten at runtime** by `cargarNegocio()` if the `nombre` field exists in the `negocios/{BUSINESS_ID}` Firestore document. The `.bsub` tagline is static HTML and must be edited directly in both files.
+
+<Tip>
+To change the tagline, edit the `.bsub` div text in both `index.html` and `ugc.html`. The business name can be managed either in the HTML or through the Firestore `nombre` field — the Firestore value takes precedence when the network is available.
+</Tip>
+
+## Logo
+
+The logo renders as a circular image in the fixed header:
+
+```html
+<img src="logo de aswa.jpg" alt="ASWA" class="logo"
+     onerror="this.style.cssText='width:54px;height:54px;border-radius:50%;background:var(--y);flex-shrink:0'">
+```
+
+The `.logo` class styles it as a 54 × 54px circle with a 2px border in the primary accent color:
+
+```css
+.logo {
+  width: 54px; height: 54px; border-radius: 50%;
+  object-fit: cover; border: 2px solid var(--y); flex-shrink: 0;
+}
+```
+
+To replace the logo, replace the `logo de aswa.jpg` file in the repository root with your own image. Keep the same filename, or update the `src` attribute in both `index.html` and `ugc.html`.
+
+The `onerror` fallback renders a solid yellow circle if the image fails to load — useful during development.
+
+## CSS custom property palette
+
+All colors are defined once in the `:root` block at the top of both HTML files. Editing a value here changes it everywhere it is used:
+
+```css
+:root {
+  --bg:   #09090b;   /* main page background */
+  --s1:   #111113;   /* surface 1 — product cards, input fields */
+  --s2:   #18181b;   /* surface 2 — secondary surfaces, modals */
+  --brd:  #27272a;   /* border color */
+  --y:    #facc15;   /* primary accent — yellow/gold */
+  --y2:   #fde047;   /* lighter accent — hover states */
+  --txt:  #fafafa;   /* primary text */
+  --mut:  #71717a;   /* muted text — labels, subtitles */
+  --grn:  #22c55e;   /* green — success states, discount banners */
+  --red:  #ef4444;   /* red — error states */
+  --pur:  #a855f7;   /* purple — referral code display */
+  --r:    1.2rem;    /* global border radius */
+}
+```
+
+### What each variable controls
+
+| Variable | Used for |
+|---|---|
+| `--bg` | `<body>` background, success screen, referral code box |
+| `--s1` | Product cards, input backgrounds, bottom nav, modals |
+| `--s2` | Secondary card surfaces, quantity minus button, payment option grid |
+| `--brd` | All borders and dividers |
+| `--y` | Logo border, `.bname`, prices (`.pp`), active states, primary buttons, accent text |
+| `--y2` | Button hover state for primary CTA (`.bcont:hover`) |
+| `--txt` | Body copy, product names, input text |
+| `--mut` | Labels, section titles, delivery zone text, placeholder text |
+| `--grn` | Discount banner (`.dban`), GPS success state, confirm delivery button |
+| `--red` | Validation errors, GPS error state, notification badge |
+| `--pur` | Referral code badge on success screen (`.scod`) |
+| `--r` | Border radius applied to product cards and modals |
+
+### Changing the primary brand color
+
+To rebrand from gold/yellow to a different primary color, change `--y` and `--y2`:
+
+```css
+:root {
+  /* Example: change to teal */
+  --y:  #14b8a6;
+  --y2: #2dd4bf;
+}
+```
+
+This single change propagates to the logo border, business name, all prices, the primary CTA button, active navigation items, input focus states, payment QR accents, and the sale note header.
+
+## Typography
+
+ASWA uses two Google Fonts loaded via a single `<link>` tag in both HTML files:
+
+```html
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700;800&family=Bebas+Neue&display=swap" rel="stylesheet">
+```
+
+| Font | Weight loaded | Used for |
+|---|---|---|
+| `Bebas Neue` | Regular (400) | Business name (`.bname`), all prices (`.pp`, `.pbig`, `.ynum`), modal titles (`.mttl`), sale note total (`.ngt-val`), referral code display (`.ctxt`, `.cref-cod`) |
+| `Poppins` | 300, 400, 600, 700, 800 | Body copy, buttons, inputs, labels, section titles, all UI text that is not a number or heading |
+
+To change fonts, replace the Google Fonts `href` value and update the `font-family` declarations in the CSS. The `body` declaration sets Poppins as the default; Bebas Neue is applied per-element via class rules.
+
+```css
+body {
+  font-family: 'Poppins', sans-serif;
+}
+.bname { font-family: 'Bebas Neue', cursive; }
+.pp    { font-family: 'Bebas Neue', cursive; }
+```
+
+## Loyalty tier colors
+
+Each loyalty tier has its own gradient applied to the customer banner header (`.cban-head`) when a returning customer is recognized. The classes are set dynamically by the JavaScript tier logic:
+
+```css
+.nivel-bronce  {
+  background: linear-gradient(135deg, #92400e, #b45309);
+  box-shadow: 0 4px 16px rgba(180,83,9,.3);
+}
+.nivel-plata   {
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  box-shadow: 0 4px 16px rgba(37,99,235,.3);
+}
+.nivel-oro     {
+  background: linear-gradient(135deg, #92400e, #d97706);
+  box-shadow: 0 4px 16px rgba(217,119,6,.35);
+}
+.nivel-diamante {
+  background: linear-gradient(135deg, #4c1d95, #7c3aed);
+  box-shadow: 0 4px 16px rgba(124,58,237,.35);
+}
+```
+
+Referral code display elements also adopt tier colors. The `.cref-cod` element in the banner and the `.ctxt` element in the referral modal both receive a tier-specific modifier class:
+
+```css
+.cref-cod.nivel-bronce-cod  { border-color: #d97706; color: #d97706; }
+.cref-cod.nivel-plata-cod   { border-color: #3b82f6; color: #3b82f6; }
+.cref-cod.nivel-oro-cod     { border-color: #f59e0b; color: #f59e0b; }
+.cref-cod.nivel-diamante-cod { border-color: #a78bfa; color: #a78bfa; }
+```
+
+## Sale note (nota de venta) branding
+
+The nota de venta is a white bottom-sheet modal that appears after order confirmation. It has its own branding layer independent of the dark-mode app theme:
+
+```html
+<!-- Sale note header -->
+<div class="nota-top">
+  <div class="nota-logo-wrap">
+    <img src="logo de aswa.jpg" alt="ASWA">
+  </div>
+  <div class="nota-empresa">La Rica Chicha</div>
+  <div class="nota-sub">ASWA · El oro líquido de la selva</div>
+  <hr class="nota-divider">
+</div>
+```
+
+Key branding elements in the sale note:
+
+| Element | Class | Style |
+|---|---|---|
+| Logo | `.nota-logo-wrap img` | 130 × 130px rounded rectangle, same `logo de aswa.jpg` file |
+| Business name | `.nota-empresa` | Poppins 900, 20px, `#c27c00` (dark gold) |
+| Divider line | `.nota-divider` | 2px solid `#facc15` (primary yellow) |
+| Grand total | `.ngt-val` | Bebas Neue, 38px, `#c27c00` |
+| Product subtotals | `.nota-prod-sub` | Bold, `#c27c00` |
+
+The sale note uses `#c27c00` (a darker, print-friendly gold) rather than the app's `--y` variable so the text remains legible on the white background.
+
+To rebrand the sale note, update the `.nota-empresa` text content and the hardcoded `#c27c00` color values in the `.nota-empresa`, `.ngt-val`, `.nota-prod-sub`, and `.nota-footer strong` selectors.
+
+## Meta tags
+
+Update these meta tags in both `index.html` and `ugc.html` when deploying for a new business:
+
+```html
+<meta name="theme-color" content="#09090b">
+<meta name="description" content="La Rica Chicha ASWA — Pide tu chicha artesanal de maiz amazónico en Morales. Delivery a domicilio.">
+<title>La Rica Chicha — ASWA Oficial</title>
+```
+
+| Tag | What to change |
+|---|---|
+| `theme-color` | Browser chrome color on mobile — should match `--bg` |
+| `description` | SEO description and WhatsApp/social link preview text |
+| `<title>` | Browser tab title and home screen shortcut label |
